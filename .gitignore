@@ -5,3 +5,5 @@
 datasets
 venv
 TableNet
+./scripts/training_checkpoints
+./scripts/training_logs
