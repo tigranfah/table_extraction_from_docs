@@ -1,0 +1,11 @@
+TableNet/
+venv/
+datasets/
+scripts/predicted_samples
+scripts/training_checkpoints
+scripts/training_logs
+
+**/*.DS_Store
+**/*__pycache__/
+**/*.swp
+**/*.ipynb_checkpoints/
