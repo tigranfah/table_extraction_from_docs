@@ -42,13 +42,18 @@ def train():
     if not os.path.exists(checkpoint_directory):
         os.mkdir(checkpoint_directory)
     checkpoint_prefix = os.path.join(checkpoint_directory, "ckpt")
-    model_checkpoint = tf.keras.callbacks.ModelCheckpoint(checkpoint_prefix, save_weights_only=True)
+    model_checkpoint = tf.keras.callbacks.ModelCheckpoint(
+                                        checkpoint_prefix, 
+                                        save_weights_only=True, 
+                                        save_best_only=True
+                                    )
 
     tb_callback = tf.keras.callbacks.TensorBoard(LOG_DIR)
 
     train_names, valid_names = train_test_split(IMAGE_NAMES, shuffle=True, random_state=2022, test_size=0.2)
 
-    # model.load_weights("training_checkpoints/2022.07.22-06")
+    model.load_weights("training_checkpoints/2022.07.25-17/ckpt")
+    print("successfully loaded checkpoints.")
 
     save_val_samples_callback = SaveValidSamplesCallback(
                                         model, 

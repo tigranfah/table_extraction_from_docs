@@ -207,5 +207,30 @@ def save_pred_samples(model, sample_names, resize_shape, epoch, set_name, direct
         logits = np.squeeze(logits)
 
         b_n, ext = os.path.splitext(image_name)
-        vis.save_pred(img, mask, logits, name=f"{b_n}_{set_name}_{epoch}", directory=directory)
+
+        rgb_img = np.moveaxis(
+            np.array([img, img, img]), 
+            0, -1
+        )
+
+        pred_3dim = np.moveaxis(
+            (np.array([logits, logits, logits])*255).astype(np.uint8), 
+            0, -1
+        )
+
+        target_3dim = np.moveaxis(
+            (np.array([mask, mask, mask])*255).astype(np.uint8), 
+            0, -1
+        )
+
+        final_img = cv2.hconcat([
+            rgb_img, 
+            target_3dim,
+            pred_3dim
+        ])
+
+        cv2.imwrite(
+            os.path.join(directory, f"{b_n}_{set_name}_{epoch}.png"),
+            final_img
+        )
         print("Saved predicted sample ", image_name, end='\r')
