@@ -1,5 +1,34 @@
 import tensorflow as tf
+import numpy as np
 from tensorflow.keras import backend as K
+
+
+def calculate_metrics(batch_pred, batch_tgt):
+    iou_value = np.mean([iou(pr, gt) for pr, gt in zip(batch_pred, batch_tgt)])
+    f1_score_value = np.mean([f1_score(pr, gt) for pr, gt in zip(batch_pred, batch_tgt)])
+    precision_value = np.mean([precision(pr, gt) for pr, gt in zip(batch_pred, batch_tgt)])
+    recall_value = np.mean([recall(pr, gt) for pr, gt in zip(batch_pred, batch_tgt)])
+
+    return (
+        iou_value,
+        f1_score_value,
+        precision_value,
+        recall_value
+    )
+
+
+def recall(y_true, y_pred):
+    TP = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
+    TP_FN = K.sum(K.round(K.clip(y_true, 0, 1)))
+    recall = TP / (TP_FN + K.epsilon())
+    return recall
+
+
+def precision(y_true, y_pred):
+    TP = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
+    TP_FP = K.sum(K.round(K.clip(y_pred, 0, 1)))
+    precision = TP / (TP_FP + K.epsilon())
+    return precision
 
 
 def iou(pr, gt, eps=1e-6, threshold=None, activation='sigmoid'):
