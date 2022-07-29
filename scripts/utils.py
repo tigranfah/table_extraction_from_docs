@@ -61,41 +61,93 @@ def read_sample(image_name, resize_shape):
     return rgb_img, rgb_mask
 
 
-def random_batch_generator(batch_size, resize_shape, aug_transform=None, normalize=True, include_edges_as_band=False):
+def random_batch_generator(
+            batch_size,
+            resize_shape,
+            train_names,
+            max_tables_on_image=5,
+            train_aug_transform=None, normalize=True,
+            include_edges_as_band=False,
+            table_aug_transform=None
+        ):
+
     while True:
+
         batch_X, batch_y = [], []
+
         while True:
 
-            random_table_name = TABLE_NAMES[random.randint(0, len(TABLE_NAMES)-1)]
-            random_page_name = PAGE_NAMES[random.randint(0, len(PAGE_NAMES)-1)]
+            sample_gen_method_ind = np.random.choice([1, 2])
 
-            table_img = cv2.imread("../datasets/tables/" + random_table_name, cv2.IMREAD_GRAYSCALE)
-            page_img = cv2.imread("../datasets/Pages/" + random_page_name, cv2.IMREAD_GRAYSCALE)
+            if sample_gen_method_ind == 1:
+                random_name_ind = random.randint(0, len(train_names)-1)
+                img, mask = read_sample(train_names[random_name_ind], resize_shape)
 
-            current_possible_pos = []
-            if table_img.shape[0] > page_img.shape[0] or table_img.shape[1] > page_img.shape[1]:
-                continue
+            # elif sample_gen_method_ind == 2:
+            #     random_page_name = PAGE_NAMES[random.randint(0, len(PAGE_NAMES)-1)]
+            #     img = cv2.imread("../datasets/Pages/" + random_page_name, cv2.IMREAD_GRAYSCALE)
+            #     mask = np.zeros_like(img).astype(np.uint8)
 
-            for i in range(0, page_img.shape[0] - table_img.shape[0], 10):
-                for j in range(0, page_img.shape[1] - table_img.shape[1], 10):
-                    if np.all(page_img[i:i+table_img.shape[0], j:j+table_img.shape[1]] == 255):
-                        current_possible_pos.append((i, j))
+            #     number_of_tables = random.randint(1, max_tables_on_image)
 
-            if len(current_possible_pos) > 0:
-                rand_ind = np.random.choice(np.arange(len(current_possible_pos)))
-                y, x = current_possible_pos[rand_ind]
-                page_img[y:y+table_img.shape[0], x:x+table_img.shape[1]] = table_img
-                
-                mask = np.zeros_like(page_img).astype(np.uint8)
-                mask[y:y+table_img.shape[0], x:x+table_img.shape[1]] = 255
+            #     for _ in range(number_of_tables):
+            #         random_table_name = TABLE_NAMES[random.randint(0, len(TABLE_NAMES)-1)]
+            #         table_img = cv2.imread("../datasets/tables/" + random_table_name, cv2.IMREAD_GRAYSCALE)
+
+            #         if table_aug_transform:
+            #             table_img = apply_table_augmentation(table_aug_transform, table_img)
+
+            #         current_possible_pos = []
+            #         if table_img.shape[0] > img.shape[0] or table_img.shape[1] > img.shape[1]:
+            #             continue
+
+            #         for i in range(0, img.shape[0] - table_img.shape[0], 10):
+            #             for j in range(0, img.shape[1] - table_img.shape[1], 10):
+            #                 if np.all(img[i:i+table_img.shape[0], j:j+table_img.shape[1]] == 255):
+            #                     current_possible_pos.append((i, j))
+
+            #         if len(current_possible_pos) > 0:
+            #             rand_ind = np.random.choice(np.arange(len(current_possible_pos)))
+            #             y, x = current_possible_pos[rand_ind]
+
+            #             img[y:y+table_img.shape[0], x:x+table_img.shape[1]] = table_img
+            #             mask[y:y+table_img.shape[0], x:x+table_img.shape[1]] = 255
+
             else:
-                mask = np.zeros_like(page_img).astype(np.uint8)
 
-            img = cv2.resize(page_img, resize_shape, interpolation=cv2.INTER_AREA)
+                random_page_name = PAGE_NAMES[random.randint(0, len(PAGE_NAMES)-1)]
+                img = cv2.imread("../datasets/Pages/" + random_page_name, cv2.IMREAD_GRAYSCALE)
+                mask = np.zeros_like(img).astype(np.uint8)
+
+                number_of_tables = random.randint(1, max_tables_on_image)
+
+                min_y = 0
+
+                for _ in range(number_of_tables):
+                    random_table_name = TABLE_NAMES[random.randint(0, len(TABLE_NAMES)-1)]
+                    table_img = cv2.imread("../datasets/tables/" + random_table_name, cv2.IMREAD_GRAYSCALE)
+
+                    if table_aug_transform:
+                        table_img = apply_table_augmentation(table_aug_transform, table_img)
+
+                    if table_img.shape[0] > img.shape[0] or table_img.shape[1] > img.shape[1]:
+                        continue
+
+                    y = random.randint(0, img.shape[0]-table_img.shape[0])
+                    x = random.randint(0, img.shape[1]-table_img.shape[1]+min_y)
+
+                    if np.any(mask[y:y+table_img.shape[0], x:x+table_img.shape[1]] == 255):
+                        continue
+                    
+                    img[y:y+table_img.shape[0], x:x+table_img.shape[1]] = table_img
+                    mask[y:y+table_img.shape[0], x:x+table_img.shape[1]] = 255
+
+
+            img = cv2.resize(img, resize_shape, interpolation=cv2.INTER_AREA)
             mask = cv2.resize(mask, resize_shape, interpolation=cv2.INTER_AREA)
 
-            if aug_transform:
-                img, mask = apply_augmentation(aug_transform, img, mask)
+            if train_aug_transform:
+                img, mask = apply_train_augmentation(train_aug_transform, img, mask)
 
             if include_edges_as_band:
                 edges = cv2.bitwise_not(cv2.Canny(img, 1, 10))
@@ -109,7 +161,7 @@ def random_batch_generator(batch_size, resize_shape, aug_transform=None, normali
             batch_X.append(img)
             batch_y.append(mask)
 
-            if len(batch_X) == batch_size:
+            if len(batch_X) >= batch_size:
                 break
 
         yield np.array(batch_X, dtype=np.float32), np.array(batch_y, dtype=np.float32)
@@ -122,7 +174,7 @@ def image_batch_generator(image_names, batch_size, resize_shape, normalize=True,
         for i, image_name in enumerate(image_names):
             img, mask = read_sample(image_name, resize_shape)
             if aug_transform:
-                img, mask = apply_augmentation(aug_transform, img, mask)
+                img, mask = apply_train_augmentation(aug_transform, img, mask)
 
             if include_edges_as_band:
                 edges = cv2.bitwise_not(cv2.Canny(img, 1, 10))
@@ -141,24 +193,41 @@ def image_batch_generator(image_names, batch_size, resize_shape, normalize=True,
                 yield return_batch
 
 
-def apply_augmentation(transform, image, mask):
-    transformed = transform(image=image, mask=mask)
-        # trans = A.Compose([
-        #     A.RandomCrop(height=image.shape[0], width=image.shape[1], always_apply=True),
-        #     A.PadIfNeeded(min_height=height, min_width=width, always_apply=True, border_mode=0)
-        # ])
-        # return trans(image=transformed["image"], mask=transformed["mask"])
+def apply_table_augmentation(transform, image):
+    transformed_table = transform(image=image)["image"]
+    if random.random() > 0.5:
+        transformed_table = transformed_table.T
 
+    scale_factor = 0.2
+    if random.random() > 0.5:
+        new_h = image.shape[0] + int(image.shape[0] * (random.random() * 2 * scale_factor - scale_factor))
+        new_w = image.shape[1] + int(image.shape[1] * (random.random() * 2 * scale_factor - scale_factor))
+        transformed_table = cv2.resize(transformed_table, (new_h, new_w), interpolation=cv2.INTER_AREA)
+    return transformed_table
+
+
+def apply_train_augmentation(transform, image, mask):
+    transformed = transform(image=image, mask=mask)
     return transformed["image"], transformed["mask"]
+
+
+def get_table_augmentation():
+    table_transform = [
+        A.HorizontalFlip(p=0.5),
+        # A.VerticalFlip(p=0.5),
+        # A.ShiftScaleRotate(shift_limit=0.0, scale_limit=0.3, rotate_limit=0, border_mode=1, p=0.5),
+        A.ColorJitter(brightness=0.05, contrast=0.05, saturation=0.05, hue=0.05, p=0.5)
+    ]
+    return A.Compose(table_transform)
 
 
 def get_train_augmentation():
     train_transform = [
-        # A.HorizontalFlip(p=0.5),
-        A.VerticalFlip(p=0.5),
+        A.HorizontalFlip(p=0.5),
+        # A.VerticalFlip(p=0.5),
         # A.Rotate(limit=45, border_mode=0, p=1, value=(255, 255, 255)),
-        A.ShiftScaleRotate(shift_limit=0.0, scale_limit=0.2, rotate_limit=15, border_mode=1, p=0.5),
-        A.ColorJitter(brightness=0.05, contrast=0.05, saturation=0.05, hue=0.05, p=0.5)
+        # A.ShiftScaleRotate(shift_limit=0.0, scale_limit=0.1, rotate_limit=10, border_mode=1, p=0.5),
+        A.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1, p=0.5)
     ]
     return A.Compose(train_transform)
 
@@ -230,7 +299,7 @@ def save_pred_samples(model, sample_names, resize_shape, epoch, set_name, direct
         ])
 
         cv2.imwrite(
-            os.path.join(directory, f"{b_n}_{set_name}_{epoch}.png"),
+            os.path.join(directory, f"{epoch}_{b_n}_{set_name}.png"),
             final_img
         )
         print("Saved predicted sample ", image_name, end='\r')

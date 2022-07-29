@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import os
 from datetime import datetime
 
-from utils import train_test_split, image_batch_generator, get_train_augmentation, random_batch_generator
+from utils import train_test_split, image_batch_generator, get_train_augmentation, random_batch_generator, get_table_augmentation
 from utils import DATASET_PATH, DS_IMAGES, DS_MASKS, SaveValidSamplesCallback
 from metrics import iou, f1_score, jaccard_distance
 from vis import anshow, imshow
@@ -19,7 +19,7 @@ IMAGE_NAMES = os.listdir(DS_IMAGES)
 TR_CONFIG = {
     "epochs" : 100,
     "batch_size" : 8,
-    "lr" : 10e-5,
+    "lr" : 10e-6,
     "input_shape" : (512, 512),
     "band_size" : 2
 }
@@ -28,11 +28,10 @@ def train():
 
     # model = TableNet.build(inputShape=(TR_CONFIG["input_shape"][0], TR_CONFIG["input_shape"][1], TR_CONFIG["band_size"]))
     model = load_unet_model(TR_CONFIG["input_shape"], TR_CONFIG["band_size"], weight_decay=0.05)
-    optim = tf.keras.optimizers.Adam(learning_rate=TR_CONFIG["lr"])
+    # optim = tf.keras.optimizers.Adam(learning_rate=TR_CONFIG["lr"])
+    optim = tf.keras.optimizers.SGD(learning_rate=TR_CONFIG["lr"], momentum=0.7)
     loss_fn = jaccard_distance
-    # loss_fn = tf.keras.losses.BinaryCrossentropy(from_logits=True)
-
-    train_augmentation = get_train_augmentation()
+    # loss_fn = tf.keras.losses.BinaryCrossentropy(from_logits=False)
 
     DATE_STR = str(datetime.now().strftime("%Y.%m.%d-%H"))
     LOG_DIR = "training_logs/" + DATE_STR
@@ -52,31 +51,33 @@ def train():
 
     train_names, valid_names = train_test_split(IMAGE_NAMES, shuffle=True, random_state=2022, test_size=0.2)
 
-    model.load_weights("training_checkpoints/2022.07.25-17/ckpt")
-    print("successfully loaded checkpoints.")
+    model.load_weights("training_checkpoints/2022.07.28-21/ckpt")
+    print("successfully loaded checkpoint.")
 
     save_val_samples_callback = SaveValidSamplesCallback(
                                         model, 
                                         train_names[:10], 
                                         valid_names[:10], 
-                                        TR_CONFIG["input_shape"],
+                                        TR_CONFIG["input_shape"], 
                                         date_str=DATE_STR
                                     )
 
-    train_batch_generator = image_batch_generator(
-                                train_names, 
-                                batch_size=TR_CONFIG["batch_size"], 
-                                resize_shape=TR_CONFIG["input_shape"], 
-                                aug_transform=train_augmentation,
-                                normalize=True, include_edges_as_band=True
-                            )
-
-    # train_batch_generator = random_batch_generator(
-    #                             TR_CONFIG["batch_size"], 
-    #                             TR_CONFIG["input_shape"],
-    #                             aug_transform=train_augmentation,
-    #                             normalize=True
+    # train_batch_generator = image_batch_generator(
+    #                             train_names, 
+    #                             batch_size=TR_CONFIG["batch_size"], 
+    #                             resize_shape=TR_CONFIG["input_shape"], 
+    #                             aug_transform=get_train_augmentation(),
+    #                             normalize=True, include_edges_as_band=True
     #                         )
+
+    train_batch_generator = random_batch_generator(
+                                batch_size=TR_CONFIG["batch_size"], 
+                                resize_shape=TR_CONFIG["input_shape"],
+                                train_names=train_names,
+                                train_aug_transform=get_train_augmentation(),
+                                table_aug_transform=get_table_augmentation(), 
+                                max_tables_on_image=6, normalize=True, include_edges_as_band=True
+                            )
 
     valid_batch_generator = image_batch_generator(
                                 valid_names, 
@@ -86,22 +87,6 @@ def train():
                                 normalize=True, include_edges_as_band=True
                             )
 
-    # s = 0;
-    # for X, y in train_batch_generator:
-    #     s += 1
-    #     print(f"train {s}.", end='\r')
-
-    # print("train total - ", s)
-    # print("expected total - ", len(train_names) // TR_CONFIG["batch_size"])
-
-    # s = 0;
-    # for X, y in valid_batch_generator:
-    #     s += 1
-    #     print(f"valid {s}.", end='\r')
-
-    # print("valid total - ", s)
-    # print("expected total - ", len(valid_names) // TR_CONFIG["batch_size"])
-
     model.compile(
         optimizer=optim,
         loss=loss_fn,
@@ -110,8 +95,8 @@ def train():
 
     model.fit(
         train_batch_generator,
-        steps_per_epoch=((len(train_names)) // TR_CONFIG["batch_size"]) + 1,
-        # steps_per_epoch=5,
+        steps_per_epoch=(len(train_names) // TR_CONFIG["batch_size"]) + 1,
+        # steps_per_epoch=100,
         validation_data=valid_batch_generator,
         validation_steps=(len(valid_names) // TR_CONFIG["batch_size"]) + 1,
         # validation_steps=5,
