@@ -27,6 +27,7 @@ def train_test_split(image_names, test_size, random_state=0, shuffle=True):
     
     train_names, test_names = [], []
     if shuffle:
+        np.random.seed(2022)
         image_inds = np.random.permutation(len(image_names))
     else: 
         image_inds = np.arange(0, len(image_names))
@@ -39,6 +40,43 @@ def train_test_split(image_names, test_size, random_state=0, shuffle=True):
         test_names.append(image_names[i])
 
     return train_names, test_names
+
+
+def preprocess_raw_output(raw, min_pixel_size, min_area):
+
+    rgb_mask = np.array(raw * 255, dtype=np.uint8)
+
+    thresh = thresh = cv2.threshold(rgb_mask, 200, 255, cv2.THRESH_BINARY)[1]
+    contours, hierarchy = cv2.findContours(image=thresh, mode=cv2.RETR_TREE, method=cv2.CHAIN_APPROX_SIMPLE)
+
+    pred = np.zeros_like(raw)
+    # print(X.shape, y.shape)
+    # break
+
+    for ind, c in enumerate(contours):
+        if len(c) > min_pixel_size:
+            min_x, max_x = np.squeeze(c)[:, 0].min(), np.squeeze(c)[:, 0].max()
+            min_y, max_y = np.squeeze(c)[:, 1].min(), np.squeeze(c)[:, 1].max()
+            if (max_x - min_x) * (max_y - min_y) > min_area:
+                pred[min_y:max_y, min_x:max_x] = 1
+
+    return pred
+
+
+def read_inf_sample(image_names, resize_shape):
+    batch_X, batch_y = [], []
+    for name in image_names:
+        img, mask = read_sample(name, resize_shape)
+        edges = cv2.bitwise_not(cv2.Canny(img, 1, 10))
+        img = np.moveaxis(np.array([img, edges]), 0, -1)
+
+        img = img / MAX_VALUE
+        mask = mask / MAX_VALUE
+
+        batch_X.append(img)
+        batch_y.append(mask)
+
+    return tf.convert_to_tensor(batch_X, dtype=tf.float32), tf.convert_to_tensor(batch_y, dtype=tf.float32)
 
 
 def read_sample(image_name, resize_shape):
@@ -188,7 +226,7 @@ def image_batch_generator(image_names, batch_size, resize_shape, normalize=True,
             batch_y.append(mask)
 
             if len(batch_X) == batch_size or i+1 >= len(image_names):
-                return_batch = np.array(batch_X), np.array(batch_y)
+                return_batch = np.array(batch_X, dtype=np.float32), np.array(batch_y, dtype=np.float32)
                 batch_X, batch_y = [], []
                 yield return_batch
 
@@ -263,6 +301,7 @@ class SaveValidSamplesCallback(tf.keras.callbacks.Callback):
 
 
 def save_pred_samples(model, sample_names, resize_shape, epoch, set_name, directory):
+
     for i, image_name in enumerate(sample_names):
         img, mask = read_sample(image_name, resize_shape)
 

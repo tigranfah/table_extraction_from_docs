@@ -158,7 +158,7 @@ def build_unet_model_fun(
         x_init, weight_decay=0.05, 
         batch_norm=True, 
         final_activation="sigmoid",
-        model_scale=3
+        model_scale=2
     ):
 
     axis_batch_norm = 3
@@ -213,7 +213,7 @@ def build_unet_model_fun(
 # c11.set_weights([ID_KERNEL_INITIALIZER, -NORM_OFF_PROBAV])
 
 
-def load_unet_model(shape=(None, None), bands_input=4, weight_decay=0.0, final_activation="sigmoid"):
+def load_unet_model(shape=(None, None), bands_input=4, weight_decay=0.0, batch_norm=True, final_activation="sigmoid"):
     ip = tf.keras.layers.Input(shape + (bands_input,), name="ip_cloud")
     c11 = tf.keras.layers.Conv2D(bands_input, (1, 1), name="normalization_cloud", trainable=False)
     x_init = c11(ip)

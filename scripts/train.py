@@ -1,4 +1,3 @@
-from random import shuffle
 import tensorflow as tf
 import numpy as np
 import matplotlib.pyplot as plt
@@ -20,15 +19,16 @@ IMAGE_NAMES = os.listdir(DS_IMAGES)
 
 TR_CONFIG = {
     "epochs" : 100,
-    "batch_size" : 2,
-    "lr" : 10e-6,
+    "batch_size" : 32,
+    # "val_batch_size" : 32,
+    "lr" : 10e-4,
     "input_shape" : (512, 512),
     "band_size" : 2
 }
 
 
 def print_progress(name, metrics, step, all_steps):
-    str_prog = f"{step}/{all_steps}: "
+    str_prog = f"{all_steps}/{step}: "
     str_prog += "{} loss {:.4f}, IOU {:.4f}, f1 {:.4f}, prec {:.4f}, rec {:.4f}".format(
         name,
         np.mean(metrics["loss"]), 
@@ -53,7 +53,7 @@ def train():
     train_names, valid_names = train_test_split(IMAGE_NAMES, shuffle=True, random_state=2022, test_size=0.2)
 
     DATE_STR = str(datetime.now().strftime("%Y.%m.%d-%H"))
-    LOG_DIR = "training_logs/" + DATE_STR
+    LOG_DIR = "training_logs/" + DATE_STR + "/"
 
     tf_writers = {
         "train" : tf.summary.create_file_writer(LOG_DIR + "train/"),
@@ -83,13 +83,12 @@ def train():
     #                                     date_str=DATE_STR
     #                                 )
 
-    model.load_weights("training_checkpoints/2022.07.29-16/ckpt")
-    print("successfully loaded checkpoint.")
+    # model.load_weights("training_checkpoints/2022.07.29-22/ckpt-1")
+    # print("successfully loaded checkpoint.")
 
-    # checkpoint_prefix = os.path.join(checkpoint_directory, "ckpt")
-    # checkpoint = tf.train.Checkpoint(step=tf.Variable(1), optimizer=optim, net=model)
-    # print(f"loading checkpoint {'../training_checkpoints/' + '2022.07.29-16/' + 'ckpt'}")
-    # status = checkpoint.restore("../training_checkpoints/" + '2022.07.29-16/' + 'ckpt')
+    checkpoint = tf.train.Checkpoint(step=tf.Variable(1), optimizer=optim, net=model)
+    # print(f"loading checkpoint {'training_checkpoints/' + '2022.07.30-22/' + 'ckpt-238'}")
+    # status = checkpoint.restore("training_checkpoints/" + '2022.07.30-22/' + 'ckpt-238')
 
     # train_batch_generator = image_batch_generator(
     #                             train_names, 
@@ -118,7 +117,7 @@ def train():
 
     for epoch in range(1, TR_CONFIG["epochs"] + 1):
 
-        print(f"\nEpoch {epoch}/{TR_CONFIG['epochs']}")
+        print(f"\nEpoch {TR_CONFIG['epochs']}/{epoch}")
         # print(f"Shuffling...")
 
         tr_metrics = {n:[] for n in ("loss", "iou", "f1", "precision", "recall")}
@@ -126,33 +125,49 @@ def train():
 
         # train loop
         for i, (batch_X, batch_y) in enumerate(train_batch_generator):
-
+            # break
             # print(batch_X.dtype, batch_y.dtype)
             # print(batch_y.min(), batch_y.max())
             batch_X = tf.convert_to_tensor(batch_X, dtype=tf.float32)
             batch_y = tf.convert_to_tensor(batch_y, dtype=tf.float32)
+            pred_y = []
 
-            # print("The size of the input: ", tf.expand_dims(image, 0).dtype, mask.dtype)
-            with tf.GradientTape() as tape:
-                logits = model(batch_X, training=True)
-                logits = tf.squeeze(logits)
+            accumulated_grads = [tf.zeros_like(var) for var in model.trainable_weights]
 
-                loss_value = loss_fn(batch_y, logits)
+            for X, y in zip(batch_X, batch_y):
 
-            grads = tape.gradient(loss_value, model.trainable_weights)
-            optim.apply_gradients(zip(grads, model.trainable_weights))
-                
+                with tf.GradientTape() as tape:
+                    # print(X.shape)
+                    pred = model(tf.expand_dims(X, 0), training=True)
+                    pred = tf.squeeze(pred, -1)
+
+                    loss_value = loss_fn(pred, tf.expand_dims(y, 0))
+                    # print(loss_value)
+
+                # print(loss_value.shape)
+                tr_metrics["loss"].append(loss_value)
+                pred_y.append(pred)
+
+                grads = tape.gradient(loss_value, model.trainable_weights)
+
+                accumulated_grads = [(acc_grads + g) for acc_grads, g in zip(accumulated_grads, grads)]
+
+            accumulated_grads = [acc_grads / TR_CONFIG["batch_size"] for acc_grads in accumulated_grads]
+
+            optim.apply_gradients(zip(accumulated_grads, model.trainable_weights))
+
             (
                 iou_value, f1_score_value, 
                 presicion_value, 
                 recall_value
-            ) = metrics.calculate_metrics(logits, batch_y)
-            tr_metrics["loss"].append(loss_value)
+            ) = metrics.calculate_metrics(batch_y, tf.convert_to_tensor(pred_y))
+            # tr_metrics["loss"].append(np.mean(loss_value))
             tr_metrics["iou"].append(iou_value)
             tr_metrics["f1"].append(f1_score_value)
             tr_metrics["precision"].append(presicion_value)
             tr_metrics["recall"].append(recall_value)
 
+            # print(i+1, len(train_names)//TR_CONFIG["batch_size"])
             print_progress("train", tr_metrics, i+1, len(train_names)//TR_CONFIG["batch_size"])
             # break
             if (i + 1) >= len(train_names)//TR_CONFIG["batch_size"]:
@@ -167,18 +182,24 @@ def train():
             # print(batch_y.min(), batch_y.max())
             batch_X = tf.convert_to_tensor(batch_X, dtype=tf.float32)
             batch_y = tf.convert_to_tensor(batch_y, dtype=tf.float32)
+            pred_y = []
 
-            logits = model(batch_X, training=False)
-            logits = tf.squeeze(logits)
+            for X, y in zip(batch_X, batch_y):
 
-            loss_value = loss_fn(batch_y, logits)
+                pred = model(tf.expand_dims(X, 0), training=True)
+                pred = tf.squeeze(pred, -1)
+
+                loss_value = loss_fn(pred, tf.expand_dims(y, 0))
+
+                tr_metrics["loss"].append(loss_value)
+                pred_y.append(pred)
   
             (
                 iou_value, f1_score_value, 
                 presicion_value, 
                 recall_value
-            ) = metrics.calculate_metrics(logits, batch_y)
-            val_metrics["loss"].append(loss_value)
+            ) = metrics.calculate_metrics(batch_y, tf.convert_to_tensor(pred_y))
+            # val_metrics["loss"].append(np.mean(loss_value))
             val_metrics["iou"].append(iou_value)
             val_metrics["f1"].append(f1_score_value)
             val_metrics["precision"].append(presicion_value)
@@ -196,14 +217,13 @@ def train():
             os.mkdir(f"./predicted_samples/{DATE_STR}")
 
         utils.save_pred_samples(
-            model, train_names, TR_CONFIG["input_shape"], epoch,
+            model, train_names[:20], TR_CONFIG["input_shape"], epoch,
             "train", directory=f"./predicted_samples/{DATE_STR}"
         )
         utils.save_pred_samples(
-            model, valid_names, TR_CONFIG["input_shape"], epoch,
+            model, valid_names[:20], TR_CONFIG["input_shape"], epoch,
             "valid", directory=f"./predicted_samples/{DATE_STR}"
         )
-
 
         print("Writing to the log...")
         with tf_writers["train"].as_default():
@@ -220,7 +240,7 @@ def train():
     # model.compile(
     #     optimizer=optim,
     #     loss=loss_fn,
-    #     metrics=[iou, f1_score]
+    #     metrics=[iou, f1_score, metrics.precision, metrics.recall]
     # )
 
     # model.fit(
@@ -234,100 +254,6 @@ def train():
     #     epochs=TR_CONFIG["epochs"],
     #     callbacks=[model_checkpoint, tb_callback, save_val_samples_callback]
     # )
-
-    # for epoch in range(TR_CONFIG["epochs"]):
-
-    #     tr_metrics = {
-    #         "loss" : [],
-    #         "iou" : [],
-    #         "f1" : []
-    #     }
-
-    #     NUM_SAMPLES = 0
-
-    #     for batch_X, batch_y in image_batch_generator(
-    #                             train_names, 
-    #                             batch_size=TR_CONFIG["batch_size"], 
-    #                             resize_shape=TR_CONFIG["input_shape"], 
-    #                             aug_transform=train_augmentation
-    #                         ):
-
-    #         batch_X, batch_y = tf.convert_to_tensor(batch_X, dtype=tf.float32), tf.convert_to_tensor(batch_y, dtype=tf.float32)
-            
-    #         NUM_SAMPLES += len(batch_X)
-
-    #         with tf.GradientTape() as tape:
-                
-    #             logits = model(batch_X, training=True)
-    #             print("predicted on ", batch_X.shape)
-    #             logits = tf.squeeze(logits)
-
-    #             loss_value = loss_fn(batch_y, logits)
-            
-    #         tr_metrics["loss"].append(loss_value)
-    #         tr_metrics["iou"].append(np.mean([iou(pr, gt) for pr, gt in zip(logits, batch_y)]))
-    #         tr_metrics["f1"].append(np.mean([f1_score(pr, gt) for pr, gt in zip(logits, batch_y)]))
-
-    #         grads = tape.gradient(loss_value, model.trainable_weights)
-    #         optim.apply_gradients(zip(grads, model.trainable_weights))
-
-    #         print("training {}/{} ~ loss {:.4f}, IOU {:.4f}, f1 score {:.4f}.".format(
-    #             NUM_SAMPLES, len(train_names),
-    #             np.mean(tr_metrics["loss"]), np.mean(tr_metrics["iou"]), np.mean(tr_metrics["f1"])
-    #         ), end="\r")
-        
-    #     print()
-
-    #     val_metrics = {
-    #         "loss" : [],
-    #         "iou" : [],
-    #         "f1" : []
-    #     }
-
-    #     NUM_SAMPLES = 0
-
-    #     for batch_X, batch_y in image_batch_generator(
-    #                             valid_names, 
-    #                             batch_size=TR_CONFIG["batch_size"], 
-    #                             resize_shape=TR_CONFIG["input_shape"]
-    #                         ):
-
-    #         batch_X, batch_y = tf.convert_to_tensor(batch_X, dtype=tf.float32), tf.convert_to_tensor(batch_y, dtype=tf.float32)
-
-    #         NUM_SAMPLES += len(batch_X)
-
-    #         logits = model(batch_X, training=False)
-    #         logits = tf.squeeze(logits)
-
-    #         loss_value = loss_fn(batch_y, logits)
-            
-    #         val_metrics["loss"].append(loss_value)
-    #         val_metrics["iou"].append(np.mean([iou(pr, gt) for pr, gt in zip(logits, batch_y)]))
-    #         val_metrics["f1"].append(np.mean([f1_score(pr, gt) for pr, gt in zip(logits, batch_y)]))
-
-    #         print("validation {}/{} ~ loss {:.4f}, IOU {:.4f}, f1 score {:.4f}.".format(
-    #             NUM_SAMPLES, len(valid_names),
-    #             np.mean(val_metrics["loss"]), np.mean(val_metrics["iou"]), np.mean(val_metrics["f1"])
-    #         ), end="\r")
-        
-    #     print()
-
-    #     print("Writing tensorboard logs...")
-    #     with tf_writers["train"].as_default():
-    #         tf.summary.scalar("loss", np.mean(tr_metrics["loss"]), step=epoch)
-    #         tf.summary.scalar("IOU", np.mean(tr_metrics["iou"]), step=epoch)
-    #         tf.summary.scalar("f1 score", np.mean(tr_metrics["f1"]), step=epoch)
-
-    #     with tf_writers["valid"].as_default():
-    #         tf.summary.scalar("loss", np.mean(val_metrics['loss']), step=epoch)
-    #         tf.summary.scalar("IOU", np.mean(val_metrics['iou']), step=epoch)
-    #         tf.summary.scalar("f1 score", np.mean(val_metrics['f1']), step=epoch)
-
-    #     print("Saving checkpoints...")
-    #     path = checkpoint.save(file_prefix=checkpoint_prefix)
-    #     print("Metrics for epoch {}".format(epoch))
-    #     print("Train loss : {:.4f}, Iou : {:.4f}, f1 score {:.4f}".format(np.mean(tr_metrics["loss"]), np.mean(tr_metrics["iou"]), np.mean(tr_metrics["f1"])))
-    #     print("Valid loss : {:.4f}, Iou : {:.4f}, f1 score {:.4f}".format(np.mean(val_metrics['loss']), np.mean(val_metrics['iou']), np.mean(val_metrics['f1'])))
 
 
 if __name__ == "__main__":
