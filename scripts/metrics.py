@@ -8,9 +8,11 @@ def calculate_metrics(batch_tgt, batch_pred):
     f1_score_value = np.mean([f1_score(gt, pr) for pr, gt in zip(batch_pred, batch_tgt)])
     precision_value = np.mean([precision(gt, pr) for pr, gt in zip(batch_pred, batch_tgt)])
     recall_value = np.mean([recall(gt, pr) for pr, gt in zip(batch_pred, batch_tgt)])
+    tf_iou_value = tf.keras.metrics.BinaryIoU()(batch_tgt, batch_pred)
 
     return (
         iou_value,
+        tf_iou_value,
         f1_score_value,
         precision_value,
         recall_value
@@ -57,16 +59,28 @@ def jaccard_distance(y_true, y_pred, smooth=100):
     return tf.reduce_mean(jd)
 
 
-# a = tf.constant([[
-#     [0, 0, 1],
-#     [0, 0, 1],
-#     [0, 0, 1]
-# ]], dtype=tf.float32)
+def dice_coef(y_true, y_pred, smooth=100):        
+    y_true_f = K.flatten(y_true)
+    y_pred_f = K.flatten(y_pred)
+    intersection = K.sum(y_true_f * y_pred_f)
+    dice = (2. * intersection + smooth) / (K.sum(y_true_f) + K.sum(y_pred_f) + smooth)
+    return dice
 
-# b = tf.constant([[
-#     [0, 0, 1],
-#     [0, 0, 1],
-#     [0, 0, 0]
-# ]], dtype=tf.float32)
 
-# print(jaccard_distance(a, b))
+# print(tf.keras.metrics.BinaryIoU()(a, b))
+# with tf.device("/CPU:0"):
+#     a = np.array([[
+#         [0, 0, 0],
+#         [0, 0, 0],
+#         [0, 0, 0]
+#     ]], dtype=np.float32)
+
+#     b = np.array([[
+#         [0, 0, 0],
+#         [0, 0, 0],
+#         [0, 0, 0]
+#     ]], dtype=np.float32)
+#     print(jaccard_distance(a, b))
+# def costum_f1(prec, rec):
+#     return 2 * prec * rec / (prec + rec)
+# print(2 * precision(a, b) * recall(a, b) / (precision(a, b) + recall(a, b) + 10e-7))

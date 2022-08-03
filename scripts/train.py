@@ -8,7 +8,7 @@ from datetime import datetime
 from utils import train_test_split, image_batch_generator, get_train_augmentation, random_batch_generator, get_table_augmentation
 from utils import DATASET_PATH, DS_IMAGES, DS_MASKS, SaveValidSamplesCallback
 import utils
-from metrics import iou, f1_score, jaccard_distance
+from metrics import dice_coef, iou, f1_score, jaccard_distance
 import metrics
 from vis import anshow, imshow
 from models import TableNet, load_unet_model
@@ -19,9 +19,9 @@ IMAGE_NAMES = os.listdir(DS_IMAGES)
 
 TR_CONFIG = {
     "epochs" : 100,
-    "batch_size" : 32,
+    "batch_size" : 16,
     # "val_batch_size" : 32,
-    "lr" : 10e-4,
+    "lr" : 10e-6,
     "input_shape" : (512, 512),
     "band_size" : 2
 }
@@ -29,9 +29,10 @@ TR_CONFIG = {
 
 def print_progress(name, metrics, step, all_steps):
     str_prog = f"{all_steps}/{step}: "
-    str_prog += "{} loss {:.4f}, IOU {:.4f}, f1 {:.4f}, prec {:.4f}, rec {:.4f}".format(
+    str_prog += "{} loss {:.4f}, tf_iou {:.4f}, iou {:.4f}, f1 {:.4f}, prec {:.4f}, rec {:.4f}".format(
         name,
-        np.mean(metrics["loss"]), 
+        np.mean(metrics["loss"]),
+        np.mean(metrics["tf_iou"]),  
         np.mean(metrics["iou"]), 
         np.mean(metrics["f1"]),
         np.mean(metrics["precision"]),
@@ -48,6 +49,7 @@ def train():
     optim = tf.keras.optimizers.Adam(learning_rate=TR_CONFIG["lr"])
     # optim = tf.keras.optimizers.SGD(learning_rate=TR_CONFIG["lr"], momentum=0.7)
     loss_fn = jaccard_distance
+    # loss_fn = dice_coef
     # loss_fn = tf.keras.losses.BinaryCrossentropy(from_logits=False)
 
     train_names, valid_names = train_test_split(IMAGE_NAMES, shuffle=True, random_state=2022, test_size=0.2)
@@ -87,25 +89,25 @@ def train():
     # print("successfully loaded checkpoint.")
 
     checkpoint = tf.train.Checkpoint(step=tf.Variable(1), optimizer=optim, net=model)
-    # print(f"loading checkpoint {'training_checkpoints/' + '2022.07.30-22/' + 'ckpt-238'}")
-    # status = checkpoint.restore("training_checkpoints/" + '2022.07.30-22/' + 'ckpt-238')
+    print(f"loading checkpoint {'training_checkpoints/' + '2022.08.03-13/ckpt-348'}")
+    status = checkpoint.restore("training_checkpoints/" + '2022.08.03-13/ckpt-348')
 
-    # train_batch_generator = image_batch_generator(
-    #                             train_names, 
-    #                             batch_size=TR_CONFIG["batch_size"], 
-    #                             resize_shape=TR_CONFIG["input_shape"], 
-    #                             aug_transform=get_train_augmentation(),
-    #                             normalize=True, include_edges_as_band=True
-    #                         )
-
-    train_batch_generator = random_batch_generator(
+    train_batch_generator = image_batch_generator(
+                                train_names, 
                                 batch_size=TR_CONFIG["batch_size"], 
-                                resize_shape=TR_CONFIG["input_shape"],
-                                train_names=train_names,
-                                train_aug_transform=get_train_augmentation(),
-                                table_aug_transform=get_table_augmentation(), 
-                                max_tables_on_image=6, normalize=True, include_edges_as_band=True
+                                resize_shape=TR_CONFIG["input_shape"], 
+                                aug_transform=get_train_augmentation(),
+                                normalize=True, include_edges_as_band=True
                             )
+
+    # train_batch_generator = random_batch_generator(
+    #                             batch_size=TR_CONFIG["batch_size"], 
+    #                             resize_shape=TR_CONFIG["input_shape"],
+    #                             train_names=train_names,
+    #                             train_aug_transform=get_train_augmentation(),
+    #                             table_aug_transform=get_table_augmentation(), 
+    #                             max_tables_on_image=6, normalize=True, include_edges_as_band=True
+    #                         )
 
     valid_batch_generator = image_batch_generator(
                                 valid_names, 
@@ -120,8 +122,8 @@ def train():
         print(f"\nEpoch {TR_CONFIG['epochs']}/{epoch}")
         # print(f"Shuffling...")
 
-        tr_metrics = {n:[] for n in ("loss", "iou", "f1", "precision", "recall")}
-        val_metrics = {n:[] for n in ("loss", "iou", "f1", "precision", "recall")}
+        tr_metrics = {n:[] for n in ("loss", "iou", "tf_iou", "f1", "precision", "recall")}
+        val_metrics = {n:[] for n in ("loss", "iou", "tf_iou", "f1", "precision", "recall")}
 
         # train loop
         for i, (batch_X, batch_y) in enumerate(train_batch_generator):
@@ -157,12 +159,14 @@ def train():
             optim.apply_gradients(zip(accumulated_grads, model.trainable_weights))
 
             (
-                iou_value, f1_score_value, 
+                iou_value, tf_iou_value,
+                f1_score_value, 
                 presicion_value, 
                 recall_value
             ) = metrics.calculate_metrics(batch_y, tf.convert_to_tensor(pred_y))
             # tr_metrics["loss"].append(np.mean(loss_value))
             tr_metrics["iou"].append(iou_value)
+            tr_metrics["tf_iou"].append(tf_iou_value)
             tr_metrics["f1"].append(f1_score_value)
             tr_metrics["precision"].append(presicion_value)
             tr_metrics["recall"].append(recall_value)
@@ -191,16 +195,18 @@ def train():
 
                 loss_value = loss_fn(pred, tf.expand_dims(y, 0))
 
-                tr_metrics["loss"].append(loss_value)
+                val_metrics["loss"].append(loss_value)
                 pred_y.append(pred)
   
             (
-                iou_value, f1_score_value, 
+                iou_value, tf_iou_value,
+                f1_score_value, 
                 presicion_value, 
                 recall_value
             ) = metrics.calculate_metrics(batch_y, tf.convert_to_tensor(pred_y))
             # val_metrics["loss"].append(np.mean(loss_value))
             val_metrics["iou"].append(iou_value)
+            val_metrics["tf_iou"].append(tf_iou_value)
             val_metrics["f1"].append(f1_score_value)
             val_metrics["precision"].append(presicion_value)
             val_metrics["recall"].append(recall_value)

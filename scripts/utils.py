@@ -42,14 +42,15 @@ def train_test_split(image_names, test_size, random_state=0, shuffle=True):
     return train_names, test_names
 
 
-def preprocess_raw_output(raw, min_pixel_size, min_area):
+def preprocess_raw_output(raw, min_pixel_size, min_area, max_seg_dist=0):
 
     rgb_mask = np.array(raw * 255, dtype=np.uint8)
 
-    thresh = thresh = cv2.threshold(rgb_mask, 200, 255, cv2.THRESH_BINARY)[1]
+    thresh = thresh = cv2.threshold(rgb_mask, 250, 255, cv2.THRESH_BINARY)[1]
     contours, hierarchy = cv2.findContours(image=thresh, mode=cv2.RETR_TREE, method=cv2.CHAIN_APPROX_SIMPLE)
 
     pred = np.zeros_like(raw)
+    seg_coords = []
     # print(X.shape, y.shape)
     # break
 
@@ -58,7 +59,20 @@ def preprocess_raw_output(raw, min_pixel_size, min_area):
             min_x, max_x = np.squeeze(c)[:, 0].min(), np.squeeze(c)[:, 0].max()
             min_y, max_y = np.squeeze(c)[:, 1].min(), np.squeeze(c)[:, 1].max()
             if (max_x - min_x) * (max_y - min_y) > min_area:
-                pred[min_y:max_y, min_x:max_x] = 1
+                put_min_y, put_max_y, put_min_x, put_max_x = min_y, max_y, min_x, max_x
+                for coords in seg_coords:
+                    if np.any(np.array([
+                        abs(coords[0] - put_min_y),
+                        abs(coords[1] - put_max_y),
+                        abs(coords[2] - put_min_x),
+                        abs(coords[3] - put_max_x)
+                    ]) < max_seg_dist):
+                        put_min_y = min(put_min_y, coords[0])
+                        put_max_y = max(put_max_y, coords[1])
+                        put_min_x = min(put_min_x, coords[2])
+                        put_max_x = max(put_max_x, coords[3])
+                seg_coords.append((put_min_y, put_max_y, put_min_x, put_max_x))
+                pred[put_min_y:put_max_y, put_min_x:put_max_x] = 1
 
     return pred
 
