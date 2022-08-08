@@ -19,26 +19,26 @@ def calculate_metrics(batch_tgt, batch_pred):
     )
 
 
-def recall(y_true, y_pred):
+def recall(y_true, y_pred, smooth=1):
     TP = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
     TP_FN = K.sum(K.round(K.clip(y_true, 0, 1)))
-    recall = TP / (TP_FN + K.epsilon())
+    recall = (TP + smooth) / (TP_FN + smooth + K.epsilon())
     return recall
 
 
-def precision(y_true, y_pred):
+def precision(y_true, y_pred, smooth=1):
     TP = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
     TP_FP = K.sum(K.round(K.clip(y_pred, 0, 1)))
-    precision = TP / (TP_FP + K.epsilon())
+    precision = (TP + smooth) / (TP_FP + smooth + K.epsilon())
     return precision
 
 
-def iou(gt, pr, eps=1e-6):
+def iou(gt, pr, smooth=1):
 
     intersection = tf.reduce_sum(gt * pr)
     union = tf.reduce_sum(gt) + tf.reduce_sum(pr) - intersection
 
-    return intersection / (union + eps)
+    return (intersection + smooth) / (union + smooth)
 
 
 def f1_score(gt, pr, beta=1, eps=1e-6):
@@ -59,12 +59,16 @@ def jaccard_distance(y_true, y_pred, smooth=100):
     return tf.reduce_mean(jd)
 
 
-def dice_coef(y_true, y_pred, smooth=100):        
+def dice_coef(y_true, y_pred, smooth=1):        
     y_true_f = K.flatten(y_true)
     y_pred_f = K.flatten(y_pred)
     intersection = K.sum(y_true_f * y_pred_f)
     dice = (2. * intersection + smooth) / (K.sum(y_true_f) + K.sum(y_pred_f) + smooth)
     return dice
+
+
+def dice_coef_loss(y_true, y_pred):
+    return 1 - dice_coef(y_true, y_pred)
 
 
 # print(tf.keras.metrics.BinaryIoU()(a, b))
@@ -78,9 +82,10 @@ def dice_coef(y_true, y_pred, smooth=100):
 #     b = np.array([[
 #         [0, 0, 0],
 #         [0, 0, 0],
-#         [0, 0, 0]
+#         [0, 0, 1]
 #     ]], dtype=np.float32)
-#     print(jaccard_distance(a, b))
+#     print(dice_coef(a, b))
+#     print(iou(a, b))
 # def costum_f1(prec, rec):
 #     return 2 * prec * rec / (prec + rec)
 # print(2 * precision(a, b) * recall(a, b) / (precision(a, b) + recall(a, b) + 10e-7))

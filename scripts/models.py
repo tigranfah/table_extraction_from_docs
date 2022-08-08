@@ -12,6 +12,7 @@ from tensorflow.keras.layers import Lambda
 from tensorflow.keras.layers import Dense
 from tensorflow.keras.layers import Flatten
 from tensorflow.keras.layers import Input, Concatenate, UpSampling2D
+import tensorflow.keras.backend as K
 
 
 class TableNet:
@@ -33,7 +34,7 @@ class TableNet:
     x = UpSampling2D(size=(2,2))(x)
 
     last = tf.keras.layers.Conv2DTranspose(
-      3, 3, strides=2, # activation="sigmoid",
+      1, 1, strides=2, activation="sigmoid",
       padding='same', name='table_output') 
     
     x = last(x)
@@ -158,27 +159,27 @@ def build_unet_model_fun(
         x_init, weight_decay=0.05, 
         batch_norm=True, 
         final_activation="sigmoid",
-        model_scale=2
+        weight_scale=1
     ):
 
     axis_batch_norm = 3
 
     reg = tf.keras.regularizers.l2(weight_decay)
 
-    conv1 = conv_blocks(x_init, 32 * model_scale, axis_batch_norm, reg, name="input", batch_norm=batch_norm)
+    conv1 = conv_blocks(x_init, 32 * weight_scale, axis_batch_norm, reg, name="input", batch_norm=batch_norm)
 
     pool1 = tf.keras.layers.MaxPooling2D(pool_size=(2, 2), name="pooling_1")(conv1)
 
-    conv2 = conv_blocks(pool1, 64 * model_scale, axis_batch_norm, reg, name="pool1", batch_norm=batch_norm)
+    conv2 = conv_blocks(pool1, 64 * weight_scale, axis_batch_norm, reg, name="pool1", batch_norm=batch_norm)
 
     pool2 = tf.keras.layers.MaxPooling2D(pool_size=(2, 2), name="pooling_2")(conv2)
 
-    conv3 = conv_blocks(pool2, 128 * model_scale, axis_batch_norm, reg, name="pool2", batch_norm=batch_norm)
+    conv3 = conv_blocks(pool2, 128 * weight_scale, axis_batch_norm, reg, name="pool2", batch_norm=batch_norm)
 
     up8 = tf.keras.layers.concatenate(
         [
             tf.keras.layers.Conv2DTranspose(
-                64 * model_scale, (2, 2), strides=(2, 2), padding="same", name="upconv1", kernel_regularizer=reg
+                64 * weight_scale, (2, 2), strides=(2, 2), padding="same", name="upconv1", kernel_regularizer=reg
             )(conv3),
             conv2,
         ],
@@ -186,12 +187,12 @@ def build_unet_model_fun(
         name="concatenate_up_1",
     )
 
-    conv8 = conv_blocks(up8, 64 * model_scale, axis_batch_norm, reg, name="up1", batch_norm=batch_norm)
+    conv8 = conv_blocks(up8, 64 * weight_scale, axis_batch_norm, reg, name="up1", batch_norm=batch_norm)
 
     up9 = tf.keras.layers.concatenate(
         [
             tf.keras.layers.Conv2DTranspose(
-                32 * model_scale, (2, 2), strides=(2, 2), padding="same", name="upconv2", kernel_regularizer=reg
+                32 * weight_scale, (2, 2), strides=(2, 2), padding="same", name="upconv2", kernel_regularizer=reg
             )(conv8),
             conv1,
         ],
@@ -199,7 +200,7 @@ def build_unet_model_fun(
         name="concatenate_up_2",
     )
 
-    conv9 = conv_blocks(up9, 32 * model_scale, axis_batch_norm, reg, name="up2", batch_norm=batch_norm)
+    conv9 = conv_blocks(up9, 32 * weight_scale, axis_batch_norm, reg, name="up2", batch_norm=batch_norm)
 
     conv10 = tf.keras.layers.Conv2D(
         1, (1, 1), kernel_regularizer=reg, name="linear_model", activation=final_activation
@@ -213,11 +214,87 @@ def build_unet_model_fun(
 # c11.set_weights([ID_KERNEL_INITIALIZER, -NORM_OFF_PROBAV])
 
 
-def load_unet_model(shape=(None, None), bands_input=4, weight_decay=0.0, batch_norm=True, final_activation="sigmoid"):
+def load_unet_model(shape=(None, None), bands_input=4, weight_decay=0.0, batch_norm=True, final_activation="sigmoid", weight_scale=1):
     ip = tf.keras.layers.Input(shape + (bands_input,), name="ip_cloud")
     c11 = tf.keras.layers.Conv2D(bands_input, (1, 1), name="normalization_cloud", trainable=False)
     x_init = c11(ip)
     conv2d10 = build_unet_model_fun(
-        x_init, weight_decay=weight_decay, final_activation=final_activation, batch_norm=True
+        x_init, weight_decay=weight_decay, final_activation=final_activation, batch_norm=True, weight_scale=weight_scale
     )
     return tf.keras.models.Model(inputs=[ip], outputs=[conv2d10], name="UNet-Clouds")
+
+
+def AttnBlock2D(x, g, inter_channel, data_format='channels_first'):
+
+    theta_x = Conv2D(inter_channel, [1, 1], strides=[1, 1], data_format=data_format)(x)
+
+    phi_g = Conv2D(inter_channel, [1, 1], strides=[1, 1], data_format=data_format)(g)
+
+    f = Activation('relu')(tf.keras.layers.add([theta_x, phi_g]))
+
+    psi_f = Conv2D(1, [1, 1], strides=[1, 1], data_format=data_format)(f)
+
+    rate = Activation('sigmoid')(psi_f)
+
+    att_x = tf.keras.layers.multiply([x, rate])
+
+    return att_x
+
+
+def attention_up_and_concate(down_layer, layer, data_format='channels_first'):
+    
+    if data_format == 'channels_first':
+        in_channel = down_layer.get_shape().as_list()[1]
+    else:
+        in_channel = down_layer.get_shape().as_list()[3]
+    
+    up = UpSampling2D(size=(2, 2), data_format=data_format)(down_layer)
+    layer = AttnBlock2D(x=layer, g=up, inter_channel=in_channel // 4, data_format=data_format)
+
+    if data_format == 'channels_first':
+        my_concat = Lambda(lambda x: K.concatenate([x[0], x[1]], axis=1))
+    else:
+        my_concat = Lambda(lambda x: K.concatenate([x[0], x[1]], axis=3))
+    
+    # print(up.shape, layer.shape)
+    concate = my_concat([up, layer])
+    return concate
+
+
+# Attention U-Net 
+def att_unet(img_w, img_h, channel_size, n_label, depth=4, features=32, data_format='channels_last'):
+    inputs = Input((img_w, img_h, channel_size))
+    x = inputs
+
+    skips = []
+    for i in range(depth):
+
+        # ENCODER
+        x = Conv2D(features, (3, 3), activation='relu', padding='same', data_format=data_format)(x)
+        # print(x.shape)
+        x = Dropout(0.2)(x)
+        x = Conv2D(features, (3, 3), activation='relu', padding='same', data_format=data_format)(x)
+        skips.append(x)
+        # print(x.shape)
+        x = MaxPooling2D((2, 2), data_format=data_format)(x)
+        features = features * 2
+
+    # BOTTLENECK
+    x = Conv2D(features, (3, 3), activation='relu', padding='same', data_format=data_format)(x)
+    x = Dropout(0.2)(x)
+    x = Conv2D(features, (3, 3), activation='relu', padding='same', data_format=data_format)(x)
+
+    # DECODER
+    for i in reversed(range(depth)):
+        features = features // 2
+        x = attention_up_and_concate(x, skips[i], data_format=data_format)
+        x = Conv2D(features, (3, 3), activation='relu', padding='same', data_format=data_format)(x)
+        x = Dropout(0.2)(x)
+        x = Conv2D(features, (3, 3), activation='relu', padding='same', data_format=data_format)(x)
+    
+    conv6 = Conv2D(n_label, (1, 1), padding='same', data_format=data_format)(x)
+    conv7 = Activation('sigmoid')(conv6)
+    
+    model = Model(inputs=inputs, outputs=conv7)
+
+    return model
