@@ -33,7 +33,7 @@ class TableNet:
     x = UpSampling2D(size=(2,2))(x)
 
     last = tf.keras.layers.Conv2DTranspose(
-      3, 3, strides=2,
+      3, 3, strides=2, # activation="sigmoid",
       padding='same', name='table_output') 
     
     x = last(x)
@@ -95,12 +95,13 @@ class TableNet:
     x = Dropout(0.8, name = 'block6_dropout2')(x)
     
     table_mask = TableNet.build_table_decoder(x, pool_layers[0], pool_layers[1])
-    column_mask = TableNet.build_column_decoder(x, pool_layers[0], pool_layers[1])
+    # column_mask = TableNet.build_column_decoder(x, pool_layers[0], pool_layers[1])
 
     model = Model(			
-              inputs=inputs,
-			        outputs=[table_mask, column_mask],
-			        name="tablenet")
+            inputs=inputs,
+            outputs=table_mask,
+            # outputs=[table_mask, column_mask],
+            name="tablenet")
     
     return model
 
@@ -153,26 +154,31 @@ def conv_blocks(
     return tf.keras.layers.Activation("relu", name=name + "_act_2")(conv)
 
 
-def build_unet_model_fun(x_init, weight_decay=0.05, batch_norm=True, final_activation="sigmoid"):
+def build_unet_model_fun(
+        x_init, weight_decay=0.05, 
+        batch_norm=True, 
+        final_activation="sigmoid",
+        model_scale=2
+    ):
 
     axis_batch_norm = 3
 
     reg = tf.keras.regularizers.l2(weight_decay)
 
-    conv1 = conv_blocks(x_init, 32, axis_batch_norm, reg, name="input", batch_norm=batch_norm)
+    conv1 = conv_blocks(x_init, 32 * model_scale, axis_batch_norm, reg, name="input", batch_norm=batch_norm)
 
     pool1 = tf.keras.layers.MaxPooling2D(pool_size=(2, 2), name="pooling_1")(conv1)
 
-    conv2 = conv_blocks(pool1, 64, axis_batch_norm, reg, name="pool1", batch_norm=batch_norm)
+    conv2 = conv_blocks(pool1, 64 * model_scale, axis_batch_norm, reg, name="pool1", batch_norm=batch_norm)
 
     pool2 = tf.keras.layers.MaxPooling2D(pool_size=(2, 2), name="pooling_2")(conv2)
 
-    conv3 = conv_blocks(pool2, 128, axis_batch_norm, reg, name="pool2", batch_norm=batch_norm)
+    conv3 = conv_blocks(pool2, 128 * model_scale, axis_batch_norm, reg, name="pool2", batch_norm=batch_norm)
 
     up8 = tf.keras.layers.concatenate(
         [
             tf.keras.layers.Conv2DTranspose(
-                64, (2, 2), strides=(2, 2), padding="same", name="upconv1", kernel_regularizer=reg
+                64 * model_scale, (2, 2), strides=(2, 2), padding="same", name="upconv1", kernel_regularizer=reg
             )(conv3),
             conv2,
         ],
@@ -180,12 +186,12 @@ def build_unet_model_fun(x_init, weight_decay=0.05, batch_norm=True, final_activ
         name="concatenate_up_1",
     )
 
-    conv8 = conv_blocks(up8, 64, axis_batch_norm, reg, name="up1", batch_norm=batch_norm)
+    conv8 = conv_blocks(up8, 64 * model_scale, axis_batch_norm, reg, name="up1", batch_norm=batch_norm)
 
     up9 = tf.keras.layers.concatenate(
         [
             tf.keras.layers.Conv2DTranspose(
-                32, (2, 2), strides=(2, 2), padding="same", name="upconv2", kernel_regularizer=reg
+                32 * model_scale, (2, 2), strides=(2, 2), padding="same", name="upconv2", kernel_regularizer=reg
             )(conv8),
             conv1,
         ],
@@ -193,7 +199,7 @@ def build_unet_model_fun(x_init, weight_decay=0.05, batch_norm=True, final_activ
         name="concatenate_up_2",
     )
 
-    conv9 = conv_blocks(up9, 32, axis_batch_norm, reg, name="up2", batch_norm=batch_norm)
+    conv9 = conv_blocks(up9, 32 * model_scale, axis_batch_norm, reg, name="up2", batch_norm=batch_norm)
 
     conv10 = tf.keras.layers.Conv2D(
         1, (1, 1), kernel_regularizer=reg, name="linear_model", activation=final_activation

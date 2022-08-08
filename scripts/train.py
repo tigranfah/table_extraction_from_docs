@@ -16,7 +16,7 @@ IMAGE_NAMES = os.listdir(DS_IMAGES)
 
 TR_CONFIG = {
     "epochs" : 100,
-    "batch_size" : 8,
+    "batch_size" : 1,
     "lr" : 10e-4,
     "input_shape" : (512, 512),
     "band_size" : 3
