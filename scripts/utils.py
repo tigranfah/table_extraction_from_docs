@@ -8,8 +8,6 @@ import os
 from pathlib import Path
 import random
 
-import vis
-
 DATASET_PATH = os.path.join("..", "datasets")
 # DATASET_PATH = "/content/gdrive/MyDrive/analysed/table_extraction_dataset/table_extractor"
 DS_IMAGES = os.path.join(DATASET_PATH, "images")
@@ -20,6 +18,9 @@ TABLE_NAMES = os.listdir("../datasets/tables")
 PAGE_NAMES = os.listdir(PAGE_IMAGES)
 
 MAX_VALUE = 255
+# MEAN_VALUE = 
+# mean = (0.485, 0.456, 0.406)
+# variance = (0.229, 0.224, 0.225)
 
 
 def train_test_split(image_names, test_size, random_state=0, shuffle=True):

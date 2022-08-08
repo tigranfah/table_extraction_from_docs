@@ -45,7 +45,7 @@ def print_progress(name, metrics, step, all_steps):
 def train():
 
     # model = TableNet.build(inputShape=(TR_CONFIG["input_shape"][0], TR_CONFIG["input_shape"][1], TR_CONFIG["band_size"]))
-    model = load_unet_model(TR_CONFIG["input_shape"], TR_CONFIG["band_size"], weight_decay=0.1, weight_scale=3)
+    model = load_unet_model(TR_CONFIG["input_shape"], TR_CONFIG["band_size"], weight_decay=0.1, weight_scale=2)
     # model = att_unet(TR_CONFIG["input_shape"][0], TR_CONFIG["input_shape"][1], TR_CONFIG["band_size"], 1, depth=4, features=8)
     
     lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
