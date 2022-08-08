@@ -18,9 +18,9 @@ TABLE_NAMES = os.listdir("../datasets/tables")
 PAGE_NAMES = os.listdir(PAGE_IMAGES)
 
 MAX_VALUE = 255
-# MEAN_VALUE = 
-# mean = (0.485, 0.456, 0.406)
-# variance = (0.229, 0.224, 0.225)
+
+MEAN = MAX_VALUE * (0.485 + 0.456 + 0.406) / 3
+VARIANCE = MAX_VALUE * (0.229 + 0.224 + 0.225) / 3
 
 
 def train_test_split(image_names, test_size, random_state=0, shuffle=True):
@@ -100,7 +100,7 @@ def read_inf_sample(image_names, resize_shape):
     return tf.convert_to_tensor(batch_X, dtype=tf.float32), tf.convert_to_tensor(batch_y, dtype=tf.float32)
 
 
-def read_sample(image_name, resize_shape, channel_size=3):
+def read_sample(image_name, resize_shape):
     base_name, ext = os.path.splitext(image_name)
 
     if os.path.exists(os.path.join(DS_IMAGES, image_name)):
@@ -210,18 +210,19 @@ def random_batch_generator(
             img = cv2.resize(img, resize_shape, interpolation=cv2.INTER_AREA)
             mask = cv2.resize(mask, resize_shape, interpolation=cv2.INTER_AREA)
 
+            if train_aug_transform:
+                img, mask = apply_train_augmentation(train_aug_transform, img, mask)
+
             if include_edges_as_band:
                 edges = cv2.bitwise_not(cv2.Canny(img, 1, 10))
-                img = np.moveaxis(np.array([img, edges]), 0, -1)
-
-            if train_aug_transform:
-                img[:, :, 0], mask = apply_train_augmentation(train_aug_transform, img[:, :, 0], mask)
-
-            # print(combined_img.shape)
 
             if normalize:
-                img = img / MAX_VALUE
+                if include_edges_as_band:
+                    edges = edges / MAX_VALUE
+                img = (img - MEAN) / VARIANCE
                 mask = mask / MAX_VALUE
+
+            img = np.moveaxis(np.array([img, edges]), 0, -1)
 
             batch_X.append(img)
             batch_y.append(mask)
@@ -239,17 +240,20 @@ def image_batch_generator(image_names, batch_size, resize_shape, normalize=True,
         batch_X, batch_y = [], []
         for i, image_name in enumerate(image_names):
             img, mask = read_sample(image_name, resize_shape)
+            
+            if aug_transform:
+                img, mask = apply_train_augmentation(aug_transform, img, mask)
 
             if include_edges_as_band:
                 edges = cv2.bitwise_not(cv2.Canny(img, 1, 10))
-                img = np.moveaxis(np.array([img, edges]), 0, -1)
-            
-            if aug_transform:
-                img[:, :, 0], mask = apply_train_augmentation(aug_transform, img[:, :, 0], mask)
 
             if normalize:
-                img = img / MAX_VALUE
+                if include_edges_as_band:
+                    edges = edges / MAX_VALUE
+                img = (img - MEAN) / VARIANCE
                 mask = mask / MAX_VALUE
+
+            img = np.moveaxis(np.array([img, edges]), 0, -1)
 
             batch_X.append(img)
             batch_y.append(mask)

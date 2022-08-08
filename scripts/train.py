@@ -21,7 +21,7 @@ TR_CONFIG = {
     "epochs" : 100,
     "batch_size" : 64,
     # "val_batch_size" : 32,
-    "lr" : 10e-5,
+    "lr" : 10e-3,
     "input_shape" : (512, 512),
     "band_size" : 2
 }
@@ -98,8 +98,8 @@ def train():
     # print("successfully loaded checkpoint.")
 
     checkpoint = tf.train.Checkpoint(step=tf.Variable(1), optimizer=optim, net=model)
-    print(f"loading checkpoint {'training_checkpoints/' + '2022.08.08-15/ckpt-36'}")
-    status = checkpoint.restore("training_checkpoints/" + '2022.08.08-15/ckpt-36')
+    # print(f"loading checkpoint {'training_checkpoints/' + '2022.08.08-15/ckpt-36'}")
+    # status = checkpoint.restore("training_checkpoints/" + '2022.08.08-15/ckpt-36')
 
     valid_batch_generator = image_batch_generator(
                                 valid_names, 
@@ -116,22 +116,22 @@ def train():
         random_inds = np.random.permutation(len(train_names))
         train_names = np.array(train_names)[random_inds]
 
-        train_batch_generator = image_batch_generator(
-                                train_names, 
-                                batch_size=TR_CONFIG["batch_size"], 
-                                resize_shape=TR_CONFIG["input_shape"], 
-                                aug_transform=get_train_augmentation(),
-                                normalize=True, include_edges_as_band=True
-                            )
+        # train_batch_generator = image_batch_generator(
+        #                         train_names, 
+        #                         batch_size=TR_CONFIG["batch_size"], 
+        #                         resize_shape=TR_CONFIG["input_shape"], 
+        #                         aug_transform=get_train_augmentation(),
+        #                         normalize=True, include_edges_as_band=True
+        #                     )
 
-        # train_batch_generator = random_batch_generator(
-        #                             batch_size=TR_CONFIG["batch_size"], 
-        #                             resize_shape=TR_CONFIG["input_shape"],
-        #                             train_names=train_names,
-        #                             train_aug_transform=get_train_augmentation(),
-        #                             table_aug_transform=get_table_augmentation(), 
-        #                             max_tables_on_image=6, normalize=True, include_edges_as_band=True
-        #                         )
+        train_batch_generator = random_batch_generator(
+                                    batch_size=TR_CONFIG["batch_size"], 
+                                    resize_shape=TR_CONFIG["input_shape"],
+                                    train_names=train_names,
+                                    train_aug_transform=get_train_augmentation(),
+                                    table_aug_transform=get_table_augmentation(), 
+                                    max_tables_on_image=6, normalize=True, include_edges_as_band=True
+                                )
 
         tr_metrics = {n:[] for n in ("loss", "iou", "tf_iou", "f1", "precision", "recall")}
         val_metrics = {n:[] for n in ("loss", "iou", "tf_iou", "f1", "precision", "recall")}
