@@ -8,7 +8,8 @@ Model_2_images/
 scripts/predicted_samples
 scripts/training_checkpoints
 scripts/training_logs
-
+frozen_east_text_detection.pb
+lite-model_craft-text-detector_float16_1.tflite
 **/*.DS_Store
 **/*__pycache__/
 **/*.swp
