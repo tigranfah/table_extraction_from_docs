@@ -210,19 +210,18 @@ def random_batch_generator(
             img = cv2.resize(img, resize_shape, interpolation=cv2.INTER_AREA)
             mask = cv2.resize(mask, resize_shape, interpolation=cv2.INTER_AREA)
 
+            if include_edges_as_band:
+                edges = cv2.bitwise_not(cv2.Canny(img, 5, 10))
+                img = np.moveaxis(np.array([img, edges]), 0, -1)
+
             if train_aug_transform:
                 img, mask = apply_train_augmentation(train_aug_transform, img, mask)
-
-            if include_edges_as_band:
-                edges = cv2.bitwise_not(cv2.Canny(img, 1, 10))
+                img[:, :, 0] = apply_augmentation(get_orig_image_transform(), img[:, :, 0])
 
             if normalize:
-                if include_edges_as_band:
-                    edges = edges / MAX_VALUE
-                img = (img - MEAN) / VARIANCE
+                img = img / MAX_VALUE
+                # img[:, :, 1][img[:, :, 1] == 255] = 1
                 mask = mask / MAX_VALUE
-
-            img = np.moveaxis(np.array([img, edges]), 0, -1)
 
             batch_X.append(img)
             batch_y.append(mask)
@@ -240,20 +239,19 @@ def image_batch_generator(image_names, batch_size, resize_shape, normalize=True,
         batch_X, batch_y = [], []
         for i, image_name in enumerate(image_names):
             img, mask = read_sample(image_name, resize_shape)
-            
-            if aug_transform:
-                img, mask = apply_train_augmentation(aug_transform, img, mask)
 
             if include_edges_as_band:
-                edges = cv2.bitwise_not(cv2.Canny(img, 1, 10))
+                edges = cv2.bitwise_not(cv2.Canny(img, 5, 10))
+                img = np.moveaxis(np.array([img, edges]), 0, -1)
+
+            if aug_transform:
+                img, mask = apply_train_augmentation(aug_transform, img, mask)
+                img[:, :, 0] = apply_augmentation(get_orig_image_transform(), img[:, :, 0])
 
             if normalize:
-                if include_edges_as_band:
-                    edges = edges / MAX_VALUE
-                img = (img - MEAN) / VARIANCE
+                img = img / MAX_VALUE
+                # img[:, :, 1][img[:, :, 1] == 255] = 1
                 mask = mask / MAX_VALUE
-
-            img = np.moveaxis(np.array([img, edges]), 0, -1)
 
             batch_X.append(img)
             batch_y.append(mask)
@@ -262,6 +260,10 @@ def image_batch_generator(image_names, batch_size, resize_shape, normalize=True,
                 return_batch = np.array(batch_X, dtype=np.float32), np.array(batch_y, dtype=np.float32)
                 batch_X, batch_y = [], []
                 yield return_batch
+
+
+def apply_augmentation(transform, image):
+    return transform(image=image)["image"]
 
 
 def apply_table_augmentation(transform, image):
@@ -286,10 +288,18 @@ def get_table_augmentation():
     table_transform = [
         A.HorizontalFlip(p=0.5),
         # A.VerticalFlip(p=0.5),
-        A.ShiftScaleRotate(shift_limit=0.0, scale_limit=0.1, rotate_limit=0, border_mode=0, p=0.4),
+        # A.ShiftScaleRotate(shift_limit=0.0, scale_limit=0.1, rotate_limit=0, border_mode=0, p=0.4),
         A.ColorJitter(brightness=0.05, contrast=0.05, saturation=0.05, hue=0.05, p=0.5)
     ]
     return A.Compose(table_transform)
+
+
+def get_orig_image_transform():
+    trans = [
+        A.GaussNoise(var_limit=(10.0, 90.0), p=0.5),
+        A.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1, p=0.5)
+    ]
+    return A.Compose(trans)
 
 
 def get_train_augmentation():
@@ -298,8 +308,8 @@ def get_train_augmentation():
         # A.VerticalFlip(p=0.5),
         # A.Rotate(limit=45, border_mode=0, p=1, value=(255, 255, 255)),
         A.ShiftScaleRotate(shift_limit=0.0, scale_limit=0.1, rotate_limit=5, border_mode=0, p=0.4),
-        A.GaussNoise(var_limit=(1.0, 10.0), p=0.5),
-        A.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1, p=0.5)
+        # A.GaussNoise(var_limit=(10.0, 90.0), p=0.5),
+        # A.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1, p=0.5)
     ]
     return A.Compose(train_transform)
 
