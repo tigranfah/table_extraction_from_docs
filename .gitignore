@@ -1,6 +1,10 @@
 TableNet/
 venv/
 datasets/
+Tables/
+SciTSR/
+Model_1_images/
+Model_2_images/
 scripts/predicted_samples
 scripts/training_checkpoints
 scripts/training_logs
