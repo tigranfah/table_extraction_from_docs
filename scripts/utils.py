@@ -8,16 +8,19 @@ import os
 from pathlib import Path
 import random
 
-import vis
-
 DATASET_PATH = os.path.join("..", "datasets")
+# DATASET_PATH = "/content/gdrive/MyDrive/analysed/table_extraction_dataset/table_extractor"
 DS_IMAGES = os.path.join(DATASET_PATH, "images")
 DS_MASKS = os.path.join(DATASET_PATH, "masks")
+PAGE_IMAGES = "../datasets/Pages"
 
 TABLE_NAMES = os.listdir("../datasets/tables")
-PAGE_NAMES = os.listdir("../datasets/Pages")
+PAGE_NAMES = os.listdir(PAGE_IMAGES)
 
 MAX_VALUE = 255
+
+MEAN = MAX_VALUE * (0.485 + 0.456 + 0.406) / 3
+VARIANCE = MAX_VALUE * (0.229 + 0.224 + 0.225) / 3
 
 
 def train_test_split(image_names, test_size, random_state=0, shuffle=True):
@@ -28,6 +31,7 @@ def train_test_split(image_names, test_size, random_state=0, shuffle=True):
     if shuffle:
         np.random.seed(2022)
         image_inds = np.random.permutation(len(image_names))
+        np.random.seed(None)
     else: 
         image_inds = np.arange(0, len(image_names))
 
@@ -39,6 +43,46 @@ def train_test_split(image_names, test_size, random_state=0, shuffle=True):
         test_names.append(image_names[i])
 
     return train_names, test_names
+
+
+def preprocess_raw_output(raw, min_pixel_size, min_area, max_seg_dist=0):
+
+    rgb_mask = np.array(raw * 255, dtype=np.uint8)
+
+    thresh = thresh = cv2.threshold(rgb_mask, 250, 255, cv2.THRESH_BINARY)[1]
+    contours, hierarchy = cv2.findContours(image=thresh, mode=cv2.RETR_TREE, method=cv2.CHAIN_APPROX_TC89_KCOS)
+    
+    # print(hierarchy)
+    pred = np.zeros_like(raw)
+    seg_coords = []
+    # print(X.shape, y.shape)
+    # break
+
+    # print(min_area)
+    for ind, c in enumerate(contours):
+        if len(c) > min_pixel_size:
+            min_x, max_x = np.squeeze(c)[:, 0].min(), np.squeeze(c)[:, 0].max()
+            min_y, max_y = np.squeeze(c)[:, 1].min(), np.squeeze(c)[:, 1].max()
+            if (max_x - min_x) * (max_y - min_y) > min_area:
+                put_min_y, put_max_y, put_min_x, put_max_x = min_y, max_y, min_x, max_x
+                for i, coords in enumerate(seg_coords):
+                    x1, y1 = max(0, put_min_x - (max_seg_dist // 2)), max(0, put_min_y - (max_seg_dist // 2))
+                    x2, y2 = max(0, put_max_x + (max_seg_dist // 2)), max(0, put_max_y + (max_seg_dist // 2))
+                    if not (
+                        (x1 > coords[3] or coords[2] > x2)
+                        or
+                        (y1 > coords[1] or coords[0] > y1)
+                    ):
+                        put_min_y = min(put_min_y, coords[0])
+                        put_max_y = max(put_max_y, coords[1])
+                        put_min_x = min(put_min_x, coords[2])
+                        put_max_x = max(put_max_x, coords[3])
+                        seg_coords.pop(i)
+                        # print("inter", coords, (put_min_y, put_max_y, put_min_x, put_max_x))
+                seg_coords.append((put_min_y, put_max_y, put_min_x, put_max_x))
+                pred[put_min_y:put_max_y, put_min_x:put_max_x] = 1
+
+    return pred
 
 
 def read_inf_sample(image_names, resize_shape):
@@ -60,7 +104,11 @@ def read_inf_sample(image_names, resize_shape):
 def read_sample(image_name, resize_shape):
     base_name, ext = os.path.splitext(image_name)
 
-    img = cv2.imread(os.path.join(DS_IMAGES, base_name + ext), cv2.IMREAD_GRAYSCALE).astype(np.uint8)
+    if os.path.exists(os.path.join(DS_IMAGES, image_name)):
+        img = cv2.imread(os.path.join(DS_IMAGES, image_name), cv2.IMREAD_GRAYSCALE).astype(np.uint8)
+    else:
+        img = cv2.imread(os.path.join(PAGE_IMAGES, image_name), cv2.IMREAD_GRAYSCALE).astype(np.uint8)
+    
     if os.path.exists(os.path.join(DS_MASKS, base_name + "_mask" + ext)):
         mask = cv2.imread(os.path.join(DS_MASKS, base_name + "_mask" + ext), cv2.IMREAD_GRAYSCALE).astype(np.uint8)
     else:
@@ -70,10 +118,9 @@ def read_sample(image_name, resize_shape):
     mask = cv2.resize(mask, resize_shape, interpolation=cv2.INTER_AREA)
 
     # rgb_img = np.moveaxis(np.array([img, img, img]), 0, -1)
-    # rgb_mask = np.moveaxis(np.array([mask, mask, mask]), 0, -1)
     rgb_img = img
     rgb_mask = mask
-
+    # print("Read image fn ", rgb_img.shape, rgb_mask.shape)
     return rgb_img, rgb_mask
 
 
@@ -158,20 +205,23 @@ def random_batch_generator(
                     img[y:y+table_img.shape[0], x:x+table_img.shape[1]] = table_img
                     mask[y:y+table_img.shape[0], x:x+table_img.shape[1]] = 255
 
+                # img = np.moveaxis(np.array([img, img, img]), 0, -1)
+
 
             img = cv2.resize(img, resize_shape, interpolation=cv2.INTER_AREA)
             mask = cv2.resize(mask, resize_shape, interpolation=cv2.INTER_AREA)
 
+            if include_edges_as_band:
+                edges = cv2.bitwise_not(cv2.Canny(img, 5, 10))
+                img = np.moveaxis(np.array([img, edges]), 0, -1)
+
             if train_aug_transform:
                 img, mask = apply_train_augmentation(train_aug_transform, img, mask)
-
-            if include_edges_as_band:
-                edges = cv2.bitwise_not(cv2.Canny(img, 1, 10))
-                img = np.moveaxis(np.array([img, edges]), 0, -1)
-            # print(combined_img.shape)
+                # img[:, :, 0] = apply_augmentation(get_orig_image_transform(), img[:, :, 0])
 
             if normalize:
                 img = img / MAX_VALUE
+                # img[:, :, 1][img[:, :, 1] == 255] = 1
                 mask = mask / MAX_VALUE
 
             batch_X.append(img)
@@ -180,6 +230,7 @@ def random_batch_generator(
             if len(batch_X) >= batch_size:
                 break
 
+        # print([X.shape for X in batch_X])
         yield np.array(batch_X, dtype=np.float32), np.array(batch_y, dtype=np.float32)
 
 
@@ -189,15 +240,18 @@ def image_batch_generator(image_names, batch_size, resize_shape, normalize=True,
         batch_X, batch_y = [], []
         for i, image_name in enumerate(image_names):
             img, mask = read_sample(image_name, resize_shape)
-            if aug_transform:
-                img, mask = apply_train_augmentation(aug_transform, img, mask)
 
             if include_edges_as_band:
-                edges = cv2.bitwise_not(cv2.Canny(img, 1, 10))
+                edges = cv2.bitwise_not(cv2.Canny(img, 5, 10))
                 img = np.moveaxis(np.array([img, edges]), 0, -1)
+
+            if aug_transform:
+                img, mask = apply_train_augmentation(aug_transform, img, mask)
+                # img[:, :, 0] = apply_augmentation(get_orig_image_transform(), img[:, :, 0])
 
             if normalize:
                 img = img / MAX_VALUE
+                # img[:, :, 1][img[:, :, 1] == 255] = 1
                 mask = mask / MAX_VALUE
 
             batch_X.append(img)
@@ -207,6 +261,10 @@ def image_batch_generator(image_names, batch_size, resize_shape, normalize=True,
                 return_batch = np.array(batch_X, dtype=np.float32), np.array(batch_y, dtype=np.float32)
                 batch_X, batch_y = [], []
                 yield return_batch
+
+
+def apply_augmentation(transform, image):
+    return transform(image=image)["image"]
 
 
 def apply_table_augmentation(transform, image):
@@ -231,10 +289,19 @@ def get_table_augmentation():
     table_transform = [
         A.HorizontalFlip(p=0.5),
         # A.VerticalFlip(p=0.5),
-        # A.ShiftScaleRotate(shift_limit=0.0, scale_limit=0.3, rotate_limit=0, border_mode=1, p=0.5),
+        # A.ShiftScaleRotate(shift_limit=0.0, scale_limit=0.1, rotate_limit=0, border_mode=0, p=0.4),
         A.ColorJitter(brightness=0.05, contrast=0.05, saturation=0.05, hue=0.05, p=0.5)
     ]
     return A.Compose(table_transform)
+
+
+def get_orig_image_transform():
+    trans = [
+        # A.GaussNoise(var_limit=(10.0, 90.0), p=0.5),
+        # A.GaussianBlur(blur_limit=(3, 7), sigma_limit=0, p=0.5),
+        # A.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1, p=0.5)
+    ]
+    return A.Compose(trans)
 
 
 def get_train_augmentation():
@@ -242,8 +309,12 @@ def get_train_augmentation():
         A.HorizontalFlip(p=0.5),
         # A.VerticalFlip(p=0.5),
         # A.Rotate(limit=45, border_mode=0, p=1, value=(255, 255, 255)),
-        # A.ShiftScaleRotate(shift_limit=0.0, scale_limit=0.1, rotate_limit=10, border_mode=1, p=0.5),
-        A.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1, p=0.5)
+        A.GaussNoise(var_limit=(10.0, 40.0), p=0.0),
+        A.GaussianBlur(blur_limit=(5, 5), sigma_limit=0, p=1),
+        A.ShiftScaleRotate(shift_limit=0.0, scale_limit=0.1, rotate_limit=0, border_mode=0, p=0.3),
+        # A.HueSaturationValue(hue_shift_limit=20, sat_shift_limit=30, val_shift_limit=20, p=1),
+        A.RandomBrightnessContrast(brightness_limit=0.1, contrast_limit=0.1, brightness_by_max=True, p=1)
+        # A.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1, p=0.5)
     ]
     return A.Compose(train_transform)
 
