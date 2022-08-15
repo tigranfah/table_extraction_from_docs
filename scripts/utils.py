@@ -31,6 +31,7 @@ def train_test_split(image_names, test_size, random_state=0, shuffle=True):
     if shuffle:
         np.random.seed(2022)
         image_inds = np.random.permutation(len(image_names))
+        np.random.seed(None)
     else: 
         image_inds = np.arange(0, len(image_names))
 
@@ -216,7 +217,7 @@ def random_batch_generator(
 
             if train_aug_transform:
                 img, mask = apply_train_augmentation(train_aug_transform, img, mask)
-                img[:, :, 0] = apply_augmentation(get_orig_image_transform(), img[:, :, 0])
+                # img[:, :, 0] = apply_augmentation(get_orig_image_transform(), img[:, :, 0])
 
             if normalize:
                 img = img / MAX_VALUE
@@ -246,7 +247,7 @@ def image_batch_generator(image_names, batch_size, resize_shape, normalize=True,
 
             if aug_transform:
                 img, mask = apply_train_augmentation(aug_transform, img, mask)
-                img[:, :, 0] = apply_augmentation(get_orig_image_transform(), img[:, :, 0])
+                # img[:, :, 0] = apply_augmentation(get_orig_image_transform(), img[:, :, 0])
 
             if normalize:
                 img = img / MAX_VALUE
@@ -296,8 +297,9 @@ def get_table_augmentation():
 
 def get_orig_image_transform():
     trans = [
-        A.GaussNoise(var_limit=(10.0, 90.0), p=0.5),
-        A.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1, p=0.5)
+        # A.GaussNoise(var_limit=(10.0, 90.0), p=0.5),
+        # A.GaussianBlur(blur_limit=(3, 7), sigma_limit=0, p=0.5),
+        # A.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1, p=0.5)
     ]
     return A.Compose(trans)
 
@@ -307,8 +309,11 @@ def get_train_augmentation():
         A.HorizontalFlip(p=0.5),
         # A.VerticalFlip(p=0.5),
         # A.Rotate(limit=45, border_mode=0, p=1, value=(255, 255, 255)),
-        A.ShiftScaleRotate(shift_limit=0.0, scale_limit=0.1, rotate_limit=5, border_mode=0, p=0.4),
-        # A.GaussNoise(var_limit=(10.0, 90.0), p=0.5),
+        A.GaussNoise(var_limit=(10.0, 40.0), p=0.0),
+        A.GaussianBlur(blur_limit=(5, 5), sigma_limit=0, p=1),
+        A.ShiftScaleRotate(shift_limit=0.0, scale_limit=0.1, rotate_limit=0, border_mode=0, p=0.3),
+        # A.HueSaturationValue(hue_shift_limit=20, sat_shift_limit=30, val_shift_limit=20, p=1),
+        A.RandomBrightnessContrast(brightness_limit=0.1, contrast_limit=0.1, brightness_by_max=True, p=1)
         # A.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1, p=0.5)
     ]
     return A.Compose(train_transform)

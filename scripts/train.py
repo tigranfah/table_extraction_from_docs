@@ -19,7 +19,7 @@ IMAGE_NAMES = os.listdir(DS_IMAGES) + os.listdir(PAGE_IMAGES)
 
 TR_CONFIG = {
     "epochs" : 100,
-    "batch_size" : 32,
+    "batch_size" : 256,
     # "val_batch_size" : 32,
     "lr" : 10e-4,
     "input_shape" : (512, 512),
@@ -98,8 +98,8 @@ def train():
     # print("successfully loaded checkpoint.")
 
     checkpoint = tf.train.Checkpoint(step=tf.Variable(1), optimizer=optim, net=model)
-    print(f"loading checkpoint {'training_checkpoints/' + '2022.08.04-14/ckpt-517'}")
-    status = checkpoint.restore("training_checkpoints/" + '2022.08.04-14/ckpt-517')
+    print(f"loading checkpoint {'training_checkpoints/' + '2022.08.10-14/ckpt-624'}")
+    status = checkpoint.restore("training_checkpoints/" + '2022.08.10-14/ckpt-624')
 
     valid_batch_generator = image_batch_generator(
                                 valid_names, 
@@ -164,7 +164,7 @@ def train():
 
                 grads = tape.gradient(loss_value, model.trainable_weights)
 
-                accumulated_grads = [(acc_grads + g) for acc_grads, g in zip(accumulated_grads, grads)]
+            accumulated_grads = [(acc_grads + g) for acc_grads, g in zip(accumulated_grads, grads)]
 
             accumulated_grads = [acc_grads / TR_CONFIG["batch_size"] for acc_grads in accumulated_grads]
 
