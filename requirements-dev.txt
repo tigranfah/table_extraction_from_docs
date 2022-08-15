@@ -6,4 +6,4 @@ pandas==1.4.3
 matplotlib==3.5.2
 protobuf==3.20.0
 albumentations==1.2.1
-hub==2.6.0
+pdf2image

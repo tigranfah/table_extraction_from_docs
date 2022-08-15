@@ -85,7 +85,22 @@ def preprocess_raw_output(raw, min_pixel_size, min_area, max_seg_dist=0):
     return pred
 
 
-def read_inf_sample(image_names, resize_shape):
+def convert_to_inf_samples(images, resize_shape):
+    batch_X = []
+    for img in images:
+        img = cv2.resize(img, resize_shape, cv2.INTER_AREA)
+
+        edges = cv2.bitwise_not(cv2.Canny(img, 1, 10))
+        img = np.moveaxis(np.array([img, edges]), 0, -1)
+
+        img = img / MAX_VALUE
+
+        batch_X.append(img)
+
+    return tf.convert_to_tensor(batch_X, dtype=tf.float32)
+
+
+def read_inf_samples(image_names, resize_shape):
     batch_X, batch_y = [], []
     for name in image_names:
         img, mask = read_sample(name, resize_shape)
