@@ -45,61 +45,6 @@ def train_test_split(image_names, test_size, random_state=0, shuffle=True):
     return train_names, test_names
 
 
-def preprocess_raw_output(raw, min_pixel_size, min_area, max_seg_dist=0):
-
-    rgb_mask = np.array(raw * 255, dtype=np.uint8)
-
-    thresh = thresh = cv2.threshold(rgb_mask, 250, 255, cv2.THRESH_BINARY)[1]
-    contours, hierarchy = cv2.findContours(image=thresh, mode=cv2.RETR_TREE, method=cv2.CHAIN_APPROX_TC89_KCOS)
-    
-    # print(hierarchy)
-    pred = np.zeros_like(raw)
-    seg_coords = []
-    # print(X.shape, y.shape)
-    # break
-
-    # print(min_area)
-    for ind, c in enumerate(contours):
-        if len(c) > min_pixel_size:
-            min_x, max_x = np.squeeze(c)[:, 0].min(), np.squeeze(c)[:, 0].max()
-            min_y, max_y = np.squeeze(c)[:, 1].min(), np.squeeze(c)[:, 1].max()
-            if (max_x - min_x) * (max_y - min_y) > min_area:
-                put_min_y, put_max_y, put_min_x, put_max_x = min_y, max_y, min_x, max_x
-                for i, coords in enumerate(seg_coords):
-                    x1, y1 = max(0, put_min_x - (max_seg_dist // 2)), max(0, put_min_y - (max_seg_dist // 2))
-                    x2, y2 = max(0, put_max_x + (max_seg_dist // 2)), max(0, put_max_y + (max_seg_dist // 2))
-                    if not (
-                        (x1 > coords[3] or coords[2] > x2)
-                        or
-                        (y1 > coords[1] or coords[0] > y1)
-                    ):
-                        put_min_y = min(put_min_y, coords[0])
-                        put_max_y = max(put_max_y, coords[1])
-                        put_min_x = min(put_min_x, coords[2])
-                        put_max_x = max(put_max_x, coords[3])
-                        seg_coords.pop(i)
-                        # print("inter", coords, (put_min_y, put_max_y, put_min_x, put_max_x))
-                seg_coords.append((put_min_y, put_max_y, put_min_x, put_max_x))
-                pred[put_min_y:put_max_y, put_min_x:put_max_x] = 1
-
-    return pred
-
-
-def convert_to_inf_samples(images, resize_shape):
-    batch_X = []
-    for img in images:
-        img = cv2.resize(img, resize_shape, cv2.INTER_AREA)
-
-        edges = cv2.bitwise_not(cv2.Canny(img, 1, 10))
-        img = np.moveaxis(np.array([img, edges]), 0, -1)
-
-        img = img / MAX_VALUE
-
-        batch_X.append(img)
-
-    return tf.convert_to_tensor(batch_X, dtype=tf.float32)
-
-
 def read_inf_samples(image_names, resize_shape):
     batch_X, batch_y = [], []
     for name in image_names:
