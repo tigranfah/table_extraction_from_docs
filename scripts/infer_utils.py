@@ -299,7 +299,8 @@ def normalize_table_detector_input(img, resize_shape):
     edges = cv2.bitwise_not(cv2.Canny(img, 1, 10))
     img = np.moveaxis(np.array([img, edges]), 0, -1)
 
-    return img / MAX_VALUE
+    return tf.convert_to_tensor(img / MAX_VALUE, dtype=tf.float32)
+
 
 def normalize_table_detector_inputs(images, resize_shape):
     batch_X = []
