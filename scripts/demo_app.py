@@ -72,7 +72,7 @@ class MainWindow(QMainWindow):
         self.lineEdit.setStyleSheet('font-size: 22px;')
         button_layout.addWidget(self.lineEdit)
 
-        self.check_all_button = QPushButton("Check all")
+        self.check_all_button = QPushButton("ch/unch")
         self.check_all_button.setEnabled(True)
         self.check_all_button.setStyleSheet('''width:  20px;
                                     height: 30px;''')
@@ -191,8 +191,10 @@ class MainWindow(QMainWindow):
         self.groupBox.setLayout(self.formLayout)
 
     def on_click_check_all(self):
-        for cb in self.checkboxes_list:
-            cb.setChecked(True)
+        if len(self.checkboxes_list) > 0:
+            is_checked = not self.checkboxes_list[0].isChecked()
+            for cb in self.checkboxes_list:
+                cb.setChecked(is_checked)
 
         # for cb in self.checkboxes_list:
         #     cb.setChecked(False)
