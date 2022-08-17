@@ -2,6 +2,8 @@
 **/__pycache__
 **/*.swp
 
+scripts/excel
+scripts/preds
 excel
 checkpoints
 datasets

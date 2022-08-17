@@ -3,6 +3,9 @@ import cv2
 import tensorflow as tf
 
 import fitz
+from openpyxl import Workbook
+from openpyxl import load_workbook
+from openpyxl.styles import Alignment
 
 import math
 import os
@@ -386,16 +389,6 @@ def do_intersect(r1, r2):
     )
 
 
-def get_contour_col_precedence(boundingRect, cols):
-    # origin = cv2.boundingRect(contour)
-    return boundingRect[1] * cols + boundingRect[0]
-
-
-def get_contour_row_precedence(boundingRect, rows):
-    # origin = cv2.boundingRect(contour)
-    return boundingRect[0] * rows + boundingRect[1]
-
-
 def get_row_bboxes_count(bboxes):
     cur = bboxes[0]
     count = 1
@@ -426,9 +419,10 @@ def get_col_bboxes_count(bboxes):
     return count
 
 
-def rescale_output(coords, current_size, target_size):
-    scale_x = target_size[1]/current_size[1]
-    scale_y = target_size[0]/current_size[0]
+def rescale_output(coords, current_shape, target_shape):
+    # print(current_size, target_size)
+    scale_x = target_shape[1]/current_shape[1]
+    scale_y = target_shape[0]/current_shape[0]
 
     rescaled_coords = []
     for i in range(len(coords)):
@@ -442,16 +436,125 @@ def rescale_output(coords, current_size, target_size):
     return rescaled_coords
 
 
-def read_pdf_windowed(fitz_doc_page, img_shape, bbox):
-    scale = [
-        (fitz_doc_page.mediabox[2] - fitz_doc_page.mediabox[0]) / img_shape[1], 
-        (fitz_doc_page.mediabox[3] - fitz_doc_page.mediabox[1]) / img_shape[0]
-    ]
+def read_pdf_windowed(fitz_doc_page, bbox, embrace=(3, 5)):
+    return fitz_doc_page.get_textbox(
+        fitz.Rect(bbox[0] - embrace[0], bbox[1] - embrace[1], bbox[2] + embrace[0], bbox[3] + embrace[1])
+    )
 
-    rect = fitz.Rect(bbox[0] * scale[0], bbox[1] * scale[1], bbox[2] * scale[0],
-                     bbox[3] * scale[1])
 
-    return fitz_doc_page.get_textbox(rect)
+def draw_table_struct(image, bboxes, name, pi, i):
+
+    res_img = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+    color_list = [(0, 0, 255), (0, 255, 0), (255, 0, 0), (0, 255, 255), (255, 255, 0), (255, 0, 255)]
+
+    bboxes.sort(key=lambda x : x[0])
+
+    total_count = 0
+    color_index = 0
+    column_midpoints = []
+
+    while total_count < len(bboxes):
+        count = get_col_bboxes_count(bboxes[total_count:])
+
+        column_midpoint = round(np.array([(b[0], b[2]) for b in bboxes[total_count:total_count+count]]).mean(axis=1).mean())
+        column_midpoints.append(column_midpoint)
+        # print(column_midpoint)
+
+        # for box in bboxes[total_count:total_count+count]:
+        #     cv2.rectangle(res_img, (box[0] - 5, box[1] - 5), (box[2] + 5, box[3] + 5), color_list[color_index], thickness=1)
+
+        cv2.line(res_img, (column_midpoint, 0), (column_midpoint, res_img.shape[0]), color=color_list[color_index], thickness=2)
+
+        total_count += count
+
+        color_index += 1
+        if color_index == len(color_list) - 1:
+            color_index = 0
+
+    bboxes.sort(key=lambda x:x[1])
+
+    total_count = 0
+    while total_count < len(bboxes):
+        count = get_row_bboxes_count(bboxes[total_count:])
+
+        for box in bboxes[total_count:total_count+count]:
+            cv2.rectangle(res_img, (round(box[0]), round(box[1])), (round(box[2]), round(box[3])), color_list[color_index], thickness=1)
+
+        total_count += count
+
+        color_index += 1
+        if color_index == len(color_list) - 1:
+            color_index = 0
+
+    cv2.imwrite(f"preds/{name}/page_{pi}_table_{i}.png", res_img)
+
+
+def to_excel_file(pdf_bboxes, fits_doc_page, doc_name, pi, table_ind):
+    # create excel sheet
+    workbook = Workbook()
+    sheet = workbook.active
+
+    # for i in range(len(bboxes)):
+    # bboxes.sort(key=lambda x:get_contour_row_precedence(x, img.shape[1]))
+    pdf_bboxes.sort(key=lambda x : x[0])
+
+    total_count = 0
+    column_midpoints = []
+
+    while total_count < len(pdf_bboxes):
+        count = get_col_bboxes_count(pdf_bboxes[total_count:])
+
+        column_midpoint = np.array([(b[0], b[2]) for b in pdf_bboxes[total_count:total_count+count]]).mean(axis=1).mean()
+        column_midpoints.append(column_midpoint)
+        total_count += count
+
+    pdf_bboxes.sort(key=lambda x:x[1])
+
+    total_count = 0
+    row_index = 1
+    while total_count < len(pdf_bboxes):
+        count = get_row_bboxes_count(pdf_bboxes[total_count:])
+
+        sorted_row_bboxes = sorted(pdf_bboxes[total_count:total_count+count], key=lambda x : x[0])
+
+        for box in sorted_row_bboxes:
+            intersected_column_indices = []
+            minimal_dist = np.inf
+            minimal_dist_column_ind = None
+            # print("box", box)
+            for col_ind, col_mid in enumerate(column_midpoints):
+                # print("col mid", col_mid)
+                distance_from_midpoint = abs((box[0] + box[2]) / 2 - col_mid)
+                if minimal_dist > distance_from_midpoint:
+                    minimal_dist = distance_from_midpoint
+                    minimal_dist_column_ind = col_ind+1
+                if box[0] <= col_mid and box[2] >= col_mid:
+                    intersected_column_indices.append(col_ind+1)
+
+            cell = None
+
+            if len(intersected_column_indices) == 0:
+                cell = sheet.cell(row_index, minimal_dist_column_ind)
+            elif len(intersected_column_indices) == 1:
+                cell = sheet.cell(row_index, intersected_column_indices[0])
+            elif len(intersected_column_indices) >= 2:
+                sheet.merge_cells(
+                    start_row=row_index, 
+                    start_column=intersected_column_indices[0], 
+                    end_row=row_index, 
+                    end_column=intersected_column_indices[-1]
+                )
+
+                cell = sheet.cell(row_index, intersected_column_indices[0])
+
+            if cell:
+                cell.value = read_pdf_windowed(fits_doc_page, box)
+                cell.alignment = Alignment(horizontal="center")
+
+        row_index += 1
+        total_count += count
+    
+    workbook.save(filename=f"excel/{doc_name}/page_{pi}_table_{table_ind}.xlsx")
 
 # end helper functions
 
