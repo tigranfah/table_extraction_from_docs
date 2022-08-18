@@ -11,7 +11,7 @@ from pdf2image import convert_from_path
 
 import os
 
-pdf_name = "../res/pdfs/618532196-MIT.pdf"
+pdf_name = "../res/pdfs/2207.12678.pdf"
 
 fitz_doc = fitz.open(pdf_name)
 
@@ -28,8 +28,8 @@ if not os.path.exists(os.path.join("../res/excel", bpdf_name)):
 if not os.path.exists(os.path.join("../res/masks", bpdf_name)):
     os.mkdir(os.path.join("../res/masks", bpdf_name))
 
-# read_indices = range(len(pillow_page_images))
-read_indices = [47]
+read_indices = range(len(pillow_page_images))
+# read_indices = [47]
 
 print("Predicting...")
 for page_i in read_indices:

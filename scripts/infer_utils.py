@@ -341,18 +341,22 @@ def postprocess_table_detector_output(raw, min_pixel_size, min_area, max_seg_dis
             min_x, max_x = np.squeeze(c)[:, 0].min(), np.squeeze(c)[:, 0].max()
             min_y, max_y = np.squeeze(c)[:, 1].min(), np.squeeze(c)[:, 1].max()
             if (max_x - min_x) * (max_y - min_y) > min_area:
+                to_be_removed = []
                 put_min_x, put_min_y, put_max_x, put_max_y = min_x, min_y, max_x, max_y
                 for i, coords in enumerate(seg_coords):
-                    # x1, y1 = max(0, put_min_x - (max_seg_dist // 2)), max(0, put_min_y - (max_seg_dist // 2))
-                    # x2, y2 = max(0, put_max_x + (max_seg_dist // 2)), max(0, put_max_y + (max_seg_dist // 2))
-                    if do_intersect((put_min_x, put_min_y, put_max_x, put_max_y), coords):
+                    x1, y1 = max(0, put_min_x - (max_seg_dist // 2)), max(0, put_min_y - (max_seg_dist // 2))
+                    x2, y2 = max(0, put_max_x + (max_seg_dist // 2)), max(0, put_max_y + (max_seg_dist // 2))
+                    if do_intersect((x1, y1, x2, y2), coords):
                         
                         put_min_x = min(put_min_x, coords[0])
                         put_min_y = min(put_min_y, coords[1])
                         put_max_x = max(put_max_x, coords[2])
                         put_max_y = max(put_max_y, coords[3])
-                        seg_coords.pop(i)
+                        to_be_removed.append(coords)
                         # print("inter", coords, (put_min_y, put_max_y, put_min_x, put_max_x))
+
+                for rem in to_be_removed:
+                    seg_coords.remove(rem)
                 seg_coords.append((put_min_x, put_min_y, put_max_x, put_max_y))
                 pred[put_min_y:put_max_y, put_min_x:put_max_x] = 255
 
