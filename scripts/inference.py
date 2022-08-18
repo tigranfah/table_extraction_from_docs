@@ -11,27 +11,31 @@ from pdf2image import convert_from_path
 
 import os
 
-pdf_name = "MonitoringWorksGettingTeachersSchool.pdf"
+pdf_name = "../res/pdfs/618532196-MIT.pdf"
 
 fitz_doc = fitz.open(pdf_name)
 
 print("Reading and converting pdf pages to images...")
 pillow_page_images = convert_from_path(pdf_name, dpi=200, grayscale=True)
 
-bpdf_name, ext = os.path.splitext(pdf_name)
-if not os.path.exists(os.path.join("preds", bpdf_name)):
-    os.mkdir(os.path.join("preds", bpdf_name))
+bpdf_name, ext = os.path.splitext(pdf_name.split("/")[-1])
+if not os.path.exists(os.path.join("../res/preds", bpdf_name)):
+    os.mkdir(os.path.join("../res/preds", bpdf_name))
 
-if not os.path.exists(os.path.join("excel", bpdf_name)):
-    os.mkdir(os.path.join("excel", bpdf_name))
+if not os.path.exists(os.path.join("../res/excel", bpdf_name)):
+    os.mkdir(os.path.join("../res/excel", bpdf_name))
 
-read_indices = range(len(pillow_page_images))
+if not os.path.exists(os.path.join("../res/masks", bpdf_name)):
+    os.mkdir(os.path.join("../res/masks", bpdf_name))
 
-print("Predicing...")
+# read_indices = range(len(pillow_page_images))
+read_indices = [47]
+
+print("Predicting...")
 for page_i in read_indices:
     orig_img = np.array(pillow_page_images[page_i-1])
     normed_page_img = normalize_table_detector_input(orig_img, resize_shape=TABLE_DETECTION_CONFIG["input_shape"])
-    table_bboxes = detect_table_bboxes(normed_page_img)
+    table_bboxes = detect_table_bboxes(normed_page_img, bpdf_name, f"page-{page_i}")
 
     rescaled_bboxes = rescale_output(table_bboxes, normed_page_img.shape[:2], orig_img.shape)
 
@@ -44,7 +48,7 @@ for page_i in read_indices:
         text_bboxes = detect_text_bboxes(normed_table_img)
         rescaled_text_bboxes = rescale_output(text_bboxes, normed_table_img.shape[1:][::-1], table_img.shape)
         # print(fitz_doc[page_i-1].mediabox)
-        draw_table_struct(table_img, rescaled_text_bboxes, bpdf_name, page_i, box_i+1)
+        draw_table_struct(table_img, rescaled_text_bboxes, bpdf_name, f"page-{page_i}_table-{box_i+1}")
         # print(rescaled_text_bboxes)
         for i in range(len(rescaled_text_bboxes)):
             rescaled_text_bboxes[i][0] += table_bbox[0]
@@ -57,7 +61,7 @@ for page_i in read_indices:
         #     print(b1, b2)
         # print(rescaled_pdf_text_bboxes, fitz_doc[page_i-1].mediabox, table_img.shape)
 
-        to_excel_file(rescaled_pdf_text_bboxes, fitz_doc[page_i-1], bpdf_name, page_i, box_i+1)
+        to_excel_file(rescaled_pdf_text_bboxes, fitz_doc[page_i-1], bpdf_name, f"page-{page_i}_table-{box_i+1}")
         print(f"Page {page_i} - saved table {box_i+1}.")
 
         # draw_table_struct(table_img, rescaled_text_bboxes, bpdf_name, i)

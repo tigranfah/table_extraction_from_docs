@@ -2,6 +2,7 @@
 **/__pycache__
 **/*.swp
 
+res
 scripts/excel
 scripts/preds
 excel
