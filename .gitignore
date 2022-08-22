@@ -14,3 +14,4 @@ lite-model_craft-text-detector_float16_1.tflite
 **/*__pycache__/
 **/*.swp
 **/*.ipynb_checkpoints/
+Final_data/
