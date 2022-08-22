@@ -15,3 +15,5 @@ lite-model_craft-text-detector_float16_1.tflite
 **/*.swp
 **/*.ipynb_checkpoints/
 Final_data/
+fin_dict/
+final_csv.csv
