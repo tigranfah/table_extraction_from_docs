@@ -41,12 +41,15 @@ def iou(gt, pr, smooth=1):
     return (intersection + smooth) / (union + smooth)
 
 
-def f1_score(gt, pr, beta=1, eps=1e-6):
-    tp = tf.reduce_sum(gt * pr)
-    fp = tf.reduce_sum(pr) - tp
-    fn = tf.reduce_sum(gt) - tp
+def f1_score(gt, pr, beta=1, eps=1e-7):
+    # tp = tf.reduce_sum(gt * pr)
+    # fp = tf.reduce_sum(pr) - tp
+    # fn = tf.reduce_sum(gt) - tp
 
-    return ((1 + beta ** 2) * tp + eps) / ((1 + beta ** 2) * tp + beta ** 2 * fn + fp + eps)
+    # return ((1 + beta ** 2) * tp + eps) / ((1 + beta ** 2) * tp + beta ** 2 * fn + fp + eps)
+    rec = recall(gt, pr)
+    prec = precision(gt, pr)
+    return 2 * rec * prec / (rec + prec + eps)
 
 
 def jaccard_distance(y_true, y_pred, smooth=100):
@@ -67,8 +70,27 @@ def dice_coef(y_true, y_pred, smooth=1):
     return dice
 
 
-def dice_coef_loss(y_true, y_pred):
-    return 1 - dice_coef(y_true, y_pred)
+def dice_coef_loss(y_true, y_pred, smooth=1):
+    return 1 - dice_coef(y_true, y_pred, smooth)
+
+
+def dice_plus_cross_entropy(beta=0.5, smooth=1):
+
+    def inner_loss(y_true, y_pred):
+        cross_entropy = K.mean(K.binary_crossentropy(target=y_true, output=y_pred))
+        dice_coef_val = dice_coef_loss(y_true, y_pred, smooth)
+
+        return beta * cross_entropy + (1 - beta) * dice_coef_val
+
+    return inner_loss
+
+
+def jaccard_plus_cross_entropy(y_true, y_pred, beta=0.5, smooth=1):
+    
+    cross_entropy = K.mean(K.binary_crossentropy(target=y_true, output=y_pred))
+    jaccard_dist = jaccard_distance(y_true, y_pred, smooth)
+
+    return beta * cross_entropy + (1 - beta) * jaccard_dist
 
 
 # print(tf.keras.metrics.BinaryIoU()(a, b))

@@ -10,8 +10,8 @@ import random
 
 DATASET_PATH = os.path.join("..", "datasets")
 # DATASET_PATH = "/content/gdrive/MyDrive/analysed/table_extraction_dataset/table_extractor"
-DS_IMAGES = os.path.join(DATASET_PATH, "images")
-DS_MASKS = os.path.join(DATASET_PATH, "masks")
+DS_IMAGES = os.path.join(DATASET_PATH, "all_images")
+DS_MASKS = os.path.join(DATASET_PATH, "all_masks")
 PAGE_IMAGES = "../datasets/Pages"
 
 TABLE_NAMES = os.listdir("../datasets/tables")
@@ -71,7 +71,7 @@ def preprocess_raw_output(raw, min_pixel_size, min_area, max_seg_dist=0):
                     if not (
                         (x1 > coords[3] or coords[2] > x2)
                         or
-                        (y1 > coords[1] or coords[0] > y1)
+                        (y1 > coords[1] or coords[0] > y2)
                     ):
                         put_min_y = min(put_min_y, coords[0])
                         put_max_y = max(put_max_y, coords[1])
@@ -101,7 +101,7 @@ def read_inf_sample(image_names, resize_shape):
     return tf.convert_to_tensor(batch_X, dtype=tf.float32), tf.convert_to_tensor(batch_y, dtype=tf.float32)
 
 
-def read_sample(image_name, resize_shape):
+def read_sample(image_name, resize_shape, three_channel=False):
     base_name, ext = os.path.splitext(image_name)
 
     if os.path.exists(os.path.join(DS_IMAGES, image_name)):
@@ -117,11 +117,10 @@ def read_sample(image_name, resize_shape):
     img = cv2.resize(img, resize_shape, interpolation=cv2.INTER_AREA)
     mask = cv2.resize(mask, resize_shape, interpolation=cv2.INTER_AREA)
 
-    # rgb_img = np.moveaxis(np.array([img, img, img]), 0, -1)
-    rgb_img = img
-    rgb_mask = mask
-    # print("Read image fn ", rgb_img.shape, rgb_mask.shape)
-    return rgb_img, rgb_mask
+    if three_channel:
+        img = np.moveaxis(np.array([img, img, img]), 0, -1)
+
+    return img, mask
 
 
 def random_batch_generator(
@@ -130,8 +129,8 @@ def random_batch_generator(
             train_names,
             max_tables_on_image=5,
             train_aug_transform=None, normalize=True,
-            include_edges_as_band=False,
-            table_aug_transform=None
+            table_aug_transform=None,
+            three_channel=False
         ):
 
     while True:
@@ -144,7 +143,7 @@ def random_batch_generator(
 
             if sample_gen_method_ind == 1:
                 random_name_ind = random.randint(0, len(train_names)-1)
-                img, mask = read_sample(train_names[random_name_ind], resize_shape)
+                img, mask = read_sample(train_names[random_name_ind], resize_shape, three_channel)
 
             # elif sample_gen_method_ind == 2:
             #     random_page_name = PAGE_NAMES[random.randint(0, len(PAGE_NAMES)-1)]
@@ -205,13 +204,16 @@ def random_batch_generator(
                     img[y:y+table_img.shape[0], x:x+table_img.shape[1]] = table_img
                     mask[y:y+table_img.shape[0], x:x+table_img.shape[1]] = 255
 
+                if three_channel:
+                    img = np.moveaxis(np.array([img, img, img]), 0, -1)
+
                 # img = np.moveaxis(np.array([img, img, img]), 0, -1)
 
 
             img = cv2.resize(img, resize_shape, interpolation=cv2.INTER_AREA)
             mask = cv2.resize(mask, resize_shape, interpolation=cv2.INTER_AREA)
 
-            if include_edges_as_band:
+            if not three_channel:
                 edges = cv2.bitwise_not(cv2.Canny(img, 5, 10))
                 img = np.moveaxis(np.array([img, edges]), 0, -1)
 
@@ -221,7 +223,6 @@ def random_batch_generator(
 
             if normalize:
                 img = img / MAX_VALUE
-                # img[:, :, 1][img[:, :, 1] == 255] = 1
                 mask = mask / MAX_VALUE
 
             batch_X.append(img)
@@ -234,14 +235,19 @@ def random_batch_generator(
         yield np.array(batch_X, dtype=np.float32), np.array(batch_y, dtype=np.float32)
 
 
-def image_batch_generator(image_names, batch_size, resize_shape, normalize=True, aug_transform=None, include_edges_as_band=False):
+def image_batch_generator(
+            image_names, batch_size, 
+            resize_shape, normalize=True, 
+            aug_transform=None,
+            three_channel=False
+        ):
 
     while True:
         batch_X, batch_y = [], []
         for i, image_name in enumerate(image_names):
-            img, mask = read_sample(image_name, resize_shape)
+            img, mask = read_sample(image_name, resize_shape, three_channel)
 
-            if include_edges_as_band:
+            if not three_channel:
                 edges = cv2.bitwise_not(cv2.Canny(img, 5, 10))
                 img = np.moveaxis(np.array([img, edges]), 0, -1)
 
@@ -280,7 +286,32 @@ def apply_table_augmentation(transform, image):
     return transformed_table
 
 
+def apply_costum_augmentation(image, mask, ratio=0.4):
+    # random stratch
+    if random.random() < 0.5:
+        new_image = np.ones_like(image) * 255
+        new_mask = np.zeros_like(mask)
+
+        random_height = random.randint(image.shape[0] - int(image.shape[0] * ratio), image.shape[0] - int(image.shape[0] * ratio / 2))
+        random_width = random.randint(image.shape[1] - int(image.shape[1] * ratio), image.shape[1] - int(image.shape[1] * ratio / 2))
+        # print(random_height, random_width)
+        
+        stretched_image = cv2.resize(image, (random_width, random_height), cv2.INTER_AREA)
+        stretched_mask = cv2.resize(mask, (random_width, random_height), cv2.INTER_AREA)
+        
+        random_y = random.randint(0, new_image.shape[0] - random_height)
+        random_x = random.randint(0, new_image.shape[1] - random_width)
+
+        # apply it to the new image
+        new_image[random_y:random_y+random_height, random_x:random_x+random_width] = stretched_image
+        new_mask[random_y:random_y+random_height, random_x:random_x+random_width] = stretched_mask
+        return new_image, new_mask
+        
+    return image, mask
+
+
 def apply_train_augmentation(transform, image, mask):
+    image, mask = apply_costum_augmentation(image, mask)
     transformed = transform(image=image, mask=mask)
     return transformed["image"], transformed["mask"]
 
@@ -307,13 +338,13 @@ def get_orig_image_transform():
 def get_train_augmentation():
     train_transform = [
         A.HorizontalFlip(p=0.5),
-        # A.VerticalFlip(p=0.5),
+        # A.VerticalFlip(p=0.3),
         # A.Rotate(limit=45, border_mode=0, p=1, value=(255, 255, 255)),
-        A.GaussNoise(var_limit=(10.0, 40.0), p=0.0),
-        A.GaussianBlur(blur_limit=(5, 5), sigma_limit=0, p=1),
-        A.ShiftScaleRotate(shift_limit=0.0, scale_limit=0.1, rotate_limit=0, border_mode=0, p=0.3),
+        A.GaussNoise(var_limit=(10.0, 40.0), p=0.3),
+        A.GaussianBlur(blur_limit=(1, 5), sigma_limit=0, p=0.3),
+        A.ShiftScaleRotate(shift_limit=0.0, scale_limit=0.1, rotate_limit=5, border_mode=0, p=0.3),
         # A.HueSaturationValue(hue_shift_limit=20, sat_shift_limit=30, val_shift_limit=20, p=1),
-        A.RandomBrightnessContrast(brightness_limit=0.1, contrast_limit=0.1, brightness_by_max=True, p=1)
+        A.RandomBrightnessContrast(brightness_limit=0.1, contrast_limit=0.1, brightness_by_max=True, p=0.3)
         # A.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1, p=0.5)
     ]
     return A.Compose(train_transform)
@@ -349,13 +380,16 @@ class SaveValidSamplesCallback(tf.keras.callbacks.Callback):
         )
 
 
-def save_pred_samples(model, sample_names, resize_shape, epoch, set_name, directory):
+def save_pred_samples(model, sample_names, resize_shape, epoch, set_name, directory, three_channel):
 
     for i, image_name in enumerate(sample_names):
         img, mask = read_sample(image_name, resize_shape)
 
-        edges = cv2.bitwise_not(cv2.Canny(img, 1, 10))
-        input_tensor = np.moveaxis(np.array([img, edges]), 0, -1)
+        if not three_channel:
+            edges = cv2.bitwise_not(cv2.Canny(img, 1, 10))
+            input_tensor = np.moveaxis(np.array([img, edges]), 0, -1)
+        else:
+            input_tensor = np.moveaxis(np.array([img, img, img]), 0, -1)
 
         input_tensor = input_tensor / MAX_VALUE
         mask = mask / MAX_VALUE

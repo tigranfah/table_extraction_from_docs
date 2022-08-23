@@ -35,7 +35,7 @@ class TableNet:
 
     last = tf.keras.layers.Conv2DTranspose(
       1, 1, strides=2, activation="sigmoid",
-      padding='same', name='table_output') 
+      padding='same', name='table_output')
     
     x = last(x)
 
@@ -84,7 +84,7 @@ class TableNet:
     return pool_layers_model(inputs)
   
   @staticmethod
-  def build(inputShape=(256, 256, 3)):
+  def build(inputShape):
 
     inputs = Input(shape=inputShape, name='input')
 

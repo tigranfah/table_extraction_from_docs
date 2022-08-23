@@ -4,6 +4,9 @@ import matplotlib.pyplot as plt
 
 import os
 from datetime import datetime
+import sys
+
+sys.path.insert(0, os.path.join("..", "keras_unets"))
 
 from utils import train_test_split, image_batch_generator, get_train_augmentation, random_batch_generator, get_table_augmentation
 from utils import DATASET_PATH, DS_IMAGES, PAGE_IMAGES, DS_MASKS, SaveValidSamplesCallback
@@ -12,6 +15,7 @@ from metrics import dice_coef, iou, f1_score, jaccard_distance
 import metrics
 from vis import anshow, imshow
 from models import TableNet, att_unet, load_unet_model
+from keras_unet_collection.models import att_unet_2d
 
 IMAGE_NAMES = os.listdir(DS_IMAGES) + os.listdir(PAGE_IMAGES)
 
@@ -19,11 +23,12 @@ IMAGE_NAMES = os.listdir(DS_IMAGES) + os.listdir(PAGE_IMAGES)
 
 TR_CONFIG = {
     "epochs" : 100,
-    "batch_size" : 256,
+    "batch_size" : 8,
     # "val_batch_size" : 32,
     "lr" : 10e-4,
     "input_shape" : (512, 512),
-    "band_size" : 2
+    "band_size" : 2,
+    "three_channel" : False
 }
 
 
@@ -45,8 +50,14 @@ def print_progress(name, metrics, step, all_steps):
 def train():
 
     # model = TableNet.build(inputShape=(TR_CONFIG["input_shape"][0], TR_CONFIG["input_shape"][1], TR_CONFIG["band_size"]))
-    model = load_unet_model(TR_CONFIG["input_shape"], TR_CONFIG["band_size"], weight_decay=0.1, weight_scale=2)
-    # model = att_unet(TR_CONFIG["input_shape"][0], TR_CONFIG["input_shape"][1], TR_CONFIG["band_size"], 1, depth=4, features=8)
+    down_scales = [32, 64, 128, 256]
+    model = att_unet_2d((TR_CONFIG["input_shape"][0], TR_CONFIG["input_shape"][1], 2), down_scales, n_labels=1,
+                stack_num_down=2, stack_num_up=2,
+                activation='ReLU', atten_activation='ReLU', attention='add', output_activation="Sigmoid", 
+                batch_norm=True, pool=False, unpool='bilinear', name='attunet'
+            )
+    # model = load_unet_model(TR_CONFIG["input_shape"], TR_CONFIG["band_size"], weight_decay=0.1, weight_scale=2)
+    
     
     lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
         initial_learning_rate=1e-3,
@@ -55,11 +66,13 @@ def train():
         decay_rate=0.9
     )
     
-    optim = tf.keras.optimizers.Adam(learning_rate=TR_CONFIG["lr"])
-    # optim = tf.keras.optimizers.SGD(learning_ratse=TR_CONFIG["lr"], momentum=0.0)
-    loss_fn = jaccard_distance
+    optim = tf.keras.optimizers.Adam(learning_rate=TR_CONFIG["lr"], beta_1=0.9, beta_2=0.999)
+    # optim = tf.keras.optimizers.SGD(learning_rate=TR_CONFIG["lr"], momentum=0.0)
+    # loss_fn = jaccard_distance
     # loss_fn = metrics.dice_coef_loss
+    loss_fn = metrics.dice_plus_cross_entropy(beta=0.7)
     # loss_fn = tf.keras.losses.BinaryCrossentropy(from_logits=False)
+    # loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
 
     train_names, valid_names = train_test_split(IMAGE_NAMES, shuffle=True, random_state=2022, test_size=0.2)
 
@@ -98,21 +111,24 @@ def train():
     # print("successfully loaded checkpoint.")
 
     checkpoint = tf.train.Checkpoint(step=tf.Variable(1), optimizer=optim, net=model)
-    print(f"loading checkpoint {'training_checkpoints/' + '2022.08.10-14/ckpt-624'}")
-    status = checkpoint.restore("training_checkpoints/" + '2022.08.10-14/ckpt-624')
+    print(f"loading checkpoint {'training_checkpoints/' + '2022.08.23-12/ckpt-105'}")
+    status = checkpoint.restore("training_checkpoints/" + '2022.08.23-12/ckpt-105')
 
     valid_batch_generator = image_batch_generator(
                                 valid_names, 
                                 batch_size=TR_CONFIG["batch_size"], 
                                 resize_shape=TR_CONFIG["input_shape"],
                                 aug_transform=None,
-                                normalize=True, include_edges_as_band=True
+                                normalize=True, three_channel=TR_CONFIG["three_channel"]
                             )
 
     for epoch in range(1, TR_CONFIG["epochs"] + 1):
 
         print(f"\nEpoch {TR_CONFIG['epochs']}/{epoch}")
         print(f"Shuffling...")
+        import time
+        t = 1000 * time.time() # current time in milliseconds
+        np.random.seed(int(t) % 2**32)
         random_inds = np.random.permutation(len(train_names))
         train_names = np.array(train_names)[random_inds]
 
@@ -121,7 +137,7 @@ def train():
                                     batch_size=TR_CONFIG["batch_size"], 
                                     resize_shape=TR_CONFIG["input_shape"], 
                                     aug_transform=get_train_augmentation(),
-                                    normalize=True, include_edges_as_band=True
+                                    normalize=True, three_channel=TR_CONFIG["three_channel"]
                                 )
 
         # train_batch_generator = random_batch_generator(
@@ -130,7 +146,7 @@ def train():
         #                             train_names=train_names,
         #                             train_aug_transform=get_train_augmentation(),
         #                             table_aug_transform=get_table_augmentation(), 
-        #                             max_tables_on_image=6, normalize=True, include_edges_as_band=True
+        #                             max_tables_on_image=6, normalize=True, three_channel=True
         #                         )
 
         tr_metrics = {n:[] for n in ("loss", "iou", "tf_iou", "f1", "precision", "recall")}
@@ -143,40 +159,37 @@ def train():
             # print(batch_y.min(), batch_y.max())
             batch_X = tf.convert_to_tensor(batch_X, dtype=tf.float32)
             batch_y = tf.convert_to_tensor(batch_y, dtype=tf.float32)
-            pred_y = []
 
-            accumulated_grads = [tf.zeros_like(var) for var in model.trainable_weights]
+            with tf.GradientTape() as tape:
+                # print(X.shape)
+                pred = model(batch_X, training=True)
+                pred = tf.squeeze(pred, -1)
 
-            for X, y in zip(batch_X, batch_y):
-
-                with tf.GradientTape() as tape:
-                    # print(X.shape)
-                    pred = model(tf.expand_dims(X, 0), training=True)
-                    # print(pred.shape)
-                    pred = tf.squeeze(pred, -1)
-
-                    loss_value = loss_fn(pred, tf.expand_dims(y, 0))
-                    # print(loss_value)
-
-                # print(loss_value.shape)
-                tr_metrics["loss"].append(loss_value)
-                pred_y.append(pred)
+                loss_value = loss_fn(pred, batch_y)
+                # print(loss_value)
 
                 grads = tape.gradient(loss_value, model.trainable_weights)
 
-            accumulated_grads = [(acc_grads + g) for acc_grads, g in zip(accumulated_grads, grads)]
+            gradient_message = ""
+            for g_i, g in enumerate(grads):
+                if np.all(np.array(g) == 0):
+                    gradient_message += f"{g_i} = 0, "
+                elif np.all(np.abs(g) <= 10e-7):
+                    gradient_message += f"{g_i} < 10e-7 ({np.sum(g)}), "
+    
+            if gradient_message:
+                print(f"\nNote: {gradient_message}.")
 
-            accumulated_grads = [acc_grads / TR_CONFIG["batch_size"] for acc_grads in accumulated_grads]
-
-            optim.apply_gradients(zip(accumulated_grads, model.trainable_weights))
+            optim.apply_gradients(zip(grads, model.trainable_weights))
 
             (
                 iou_value, tf_iou_value,
                 f1_score_value, 
                 presicion_value, 
                 recall_value
-            ) = metrics.calculate_metrics(batch_y, tf.convert_to_tensor(pred_y))
-            # tr_metrics["loss"].append(np.mean(loss_value))
+            ) = metrics.calculate_metrics(batch_y, pred)
+
+            tr_metrics["loss"].append(loss_value)
             tr_metrics["iou"].append(iou_value)
             tr_metrics["tf_iou"].append(tf_iou_value)
             tr_metrics["f1"].append(f1_score_value)
@@ -185,7 +198,7 @@ def train():
 
             # print(i+1, len(train_names)//TR_CONFIG["batch_size"])
             print_progress("train", tr_metrics, i+1, len(train_names)//TR_CONFIG["batch_size"])
-            # break
+
             if (i + 1) >= len(train_names)//TR_CONFIG["batch_size"]:
                 break
 
@@ -198,25 +211,20 @@ def train():
             # print(batch_y.min(), batch_y.max())
             batch_X = tf.convert_to_tensor(batch_X, dtype=tf.float32)
             batch_y = tf.convert_to_tensor(batch_y, dtype=tf.float32)
-            pred_y = []
 
-            for X, y in zip(batch_X, batch_y):
+            pred = model(batch_X, training=False)
+            pred = tf.squeeze(pred, -1)
 
-                pred = model(tf.expand_dims(X, 0), training=True)
-                pred = tf.squeeze(pred, -1)
-
-                loss_value = loss_fn(pred, tf.expand_dims(y, 0))
-
-                val_metrics["loss"].append(loss_value)
-                pred_y.append(pred)
+            loss_value = loss_fn(pred, batch_y)
   
             (
                 iou_value, tf_iou_value,
                 f1_score_value, 
                 presicion_value, 
                 recall_value
-            ) = metrics.calculate_metrics(batch_y, tf.convert_to_tensor(pred_y))
-            # val_metrics["loss"].append(np.mean(loss_value))
+            ) = metrics.calculate_metrics(batch_y, pred)
+
+            val_metrics["loss"].append(loss_value)
             val_metrics["iou"].append(iou_value)
             val_metrics["tf_iou"].append(tf_iou_value)
             val_metrics["f1"].append(f1_score_value)
@@ -234,15 +242,6 @@ def train():
         if not os.path.exists(f"./predicted_samples/{DATE_STR}"):
             os.mkdir(f"./predicted_samples/{DATE_STR}")
 
-        utils.save_pred_samples(
-            model, train_names[:20], TR_CONFIG["input_shape"], epoch,
-            "train", directory=f"./predicted_samples/{DATE_STR}"
-        )
-        utils.save_pred_samples(
-            model, valid_names[:20], TR_CONFIG["input_shape"], epoch,
-            "valid", directory=f"./predicted_samples/{DATE_STR}"
-        )
-
         print("Writing to the log...")
         with tf_writers["train"].as_default():
             for k, v in tr_metrics.items():
@@ -254,6 +253,15 @@ def train():
 
         path = checkpoint.save(file_prefix=checkpoint_prefix)
         print("Saved checkpoint for epoch {} to {}".format(epoch, path))
+
+        utils.save_pred_samples(
+            model, train_names[:20], TR_CONFIG["input_shape"], epoch,
+            "train", directory=f"./predicted_samples/{DATE_STR}", three_channel=TR_CONFIG["three_channel"]
+        )
+        utils.save_pred_samples(
+            model, valid_names[:20], TR_CONFIG["input_shape"], epoch,
+            "valid", directory=f"./predicted_samples/{DATE_STR}", three_channel=TR_CONFIG["three_channel"]
+        )
 
     # model.compile(
     #     optimizer=optim,
