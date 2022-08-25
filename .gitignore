@@ -4,6 +4,8 @@ datasets/
 scripts/predicted_samples
 scripts/training_checkpoints
 scripts/training_logs
+res/
+models/
 
 **/*.DS_Store
 **/*__pycache__/

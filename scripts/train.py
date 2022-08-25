@@ -9,7 +9,7 @@ import sys
 sys.path.insert(0, os.path.join("..", "keras_unets"))
 
 from utils import train_test_split, image_batch_generator, get_train_augmentation, random_batch_generator, get_table_augmentation
-from utils import DATASET_PATH, DS_IMAGES, PAGE_IMAGES, DS_MASKS, SaveValidSamplesCallback
+from utils import DATASET_PATH, DS_IMAGES, PAGE_IMAGES, DS_MASKS, TEST_IMAGES, TEST_MASKS
 import utils
 from metrics import dice_coef, iou, f1_score, jaccard_distance
 import metrics
@@ -17,15 +17,13 @@ from vis import anshow, imshow
 from models import TableNet, att_unet, load_unet_model
 from keras_unet_collection.models import att_unet_2d
 
-IMAGE_NAMES = os.listdir(DS_IMAGES) + os.listdir(PAGE_IMAGES)
-
 # SCRIPTS_PATH = "/content/gdrive/MyDrive/table_extraction_dataset/table_extractor/scripts/"
 
 TR_CONFIG = {
     "epochs" : 100,
-    "batch_size" : 8,
+    "batch_size" : 7,
     # "val_batch_size" : 32,
-    "lr" : 10e-4,
+    "lr" : 10e-5,
     "input_shape" : (512, 512),
     "band_size" : 2,
     "three_channel" : False
@@ -51,6 +49,7 @@ def train():
 
     # model = TableNet.build(inputShape=(TR_CONFIG["input_shape"][0], TR_CONFIG["input_shape"][1], TR_CONFIG["band_size"]))
     down_scales = [32, 64, 128, 256]
+    # down_scales = [16, 32, 64, 128]
     model = att_unet_2d((TR_CONFIG["input_shape"][0], TR_CONFIG["input_shape"][1], 2), down_scales, n_labels=1,
                 stack_num_down=2, stack_num_up=2,
                 activation='ReLU', atten_activation='ReLU', attention='add', output_activation="Sigmoid", 
@@ -58,23 +57,23 @@ def train():
             )
     # model = load_unet_model(TR_CONFIG["input_shape"], TR_CONFIG["band_size"], weight_decay=0.1, weight_scale=2)
     
-    
     lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
-        initial_learning_rate=1e-3,
+        initial_learning_rate=1e-2,
         # decay_steps=int(len(IMAGE_NAMES) * 0.1),
-        decay_steps=59,
-        decay_rate=0.9
+        decay_steps=614,
+        decay_rate=0.2
     )
     
     optim = tf.keras.optimizers.Adam(learning_rate=TR_CONFIG["lr"], beta_1=0.9, beta_2=0.999)
     # optim = tf.keras.optimizers.SGD(learning_rate=TR_CONFIG["lr"], momentum=0.0)
-    # loss_fn = jaccard_distance
+    loss_fn = jaccard_distance
+    # loss_fn = metrics.jaccard_plus_cross_entropy(beta=0.5)
     # loss_fn = metrics.dice_coef_loss
-    loss_fn = metrics.dice_plus_cross_entropy(beta=0.7)
+    # loss_fn = metrics.dice_plus_cross_entropy(beta=0.5)
     # loss_fn = tf.keras.losses.BinaryCrossentropy(from_logits=False)
-    # loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
 
-    train_names, valid_names = train_test_split(IMAGE_NAMES, shuffle=True, random_state=2022, test_size=0.2)
+    train_names = os.listdir(DS_IMAGES) + os.listdir(PAGE_IMAGES)
+    valid_names = os.listdir(TEST_IMAGES)
 
     DATE_STR = str(datetime.now().strftime("%Y.%m.%d-%H"))
     LOG_DIR = "training_logs/" + DATE_STR + "/"
@@ -111,15 +110,17 @@ def train():
     # print("successfully loaded checkpoint.")
 
     checkpoint = tf.train.Checkpoint(step=tf.Variable(1), optimizer=optim, net=model)
-    print(f"loading checkpoint {'training_checkpoints/' + '2022.08.23-12/ckpt-105'}")
-    status = checkpoint.restore("training_checkpoints/" + '2022.08.23-12/ckpt-105')
+    print(f"loading checkpoint {'training_checkpoints/' + '2022.08.25-00/ckpt-207'}")
+    status = checkpoint.restore("training_checkpoints/" + '2022.08.25-00 (203 ckpt)/ckpt-207')
+    status.expect_partial()
 
     valid_batch_generator = image_batch_generator(
                                 valid_names, 
                                 batch_size=TR_CONFIG["batch_size"], 
                                 resize_shape=TR_CONFIG["input_shape"],
                                 aug_transform=None,
-                                normalize=True, three_channel=TR_CONFIG["three_channel"]
+                                normalize=True, three_channel=TR_CONFIG["three_channel"],
+                                ds_images=TEST_IMAGES, ds_masks=TEST_MASKS
                             )
 
     for epoch in range(1, TR_CONFIG["epochs"] + 1):
@@ -198,7 +199,7 @@ def train():
 
             # print(i+1, len(train_names)//TR_CONFIG["batch_size"])
             print_progress("train", tr_metrics, i+1, len(train_names)//TR_CONFIG["batch_size"])
-
+            # break
             if (i + 1) >= len(train_names)//TR_CONFIG["batch_size"]:
                 break
 
@@ -255,12 +256,14 @@ def train():
         print("Saved checkpoint for epoch {} to {}".format(epoch, path))
 
         utils.save_pred_samples(
-            model, train_names[:20], TR_CONFIG["input_shape"], epoch,
+            model, train_names[:10], TR_CONFIG["input_shape"], epoch,
             "train", directory=f"./predicted_samples/{DATE_STR}", three_channel=TR_CONFIG["three_channel"]
         )
+        
         utils.save_pred_samples(
-            model, valid_names[:20], TR_CONFIG["input_shape"], epoch,
-            "valid", directory=f"./predicted_samples/{DATE_STR}", three_channel=TR_CONFIG["three_channel"]
+            model, valid_names[:30], TR_CONFIG["input_shape"], epoch,
+            "valid", directory=f"./predicted_samples/{DATE_STR}", three_channel=TR_CONFIG["three_channel"],
+            ds_images=TEST_IMAGES, ds_masks=TEST_MASKS
         )
 
     # model.compile(

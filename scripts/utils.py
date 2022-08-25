@@ -12,6 +12,8 @@ DATASET_PATH = os.path.join("..", "datasets")
 # DATASET_PATH = "/content/gdrive/MyDrive/analysed/table_extraction_dataset/table_extractor"
 DS_IMAGES = os.path.join(DATASET_PATH, "all_images")
 DS_MASKS = os.path.join(DATASET_PATH, "all_masks")
+TEST_IMAGES = os.path.join(DATASET_PATH, "test_images")
+TEST_MASKS = os.path.join(DATASET_PATH, "test_masks")
 PAGE_IMAGES = "../datasets/Pages"
 
 TABLE_NAMES = os.listdir("../datasets/tables")
@@ -101,18 +103,18 @@ def read_inf_sample(image_names, resize_shape):
     return tf.convert_to_tensor(batch_X, dtype=tf.float32), tf.convert_to_tensor(batch_y, dtype=tf.float32)
 
 
-def read_sample(image_name, resize_shape, three_channel=False):
+def read_sample(image_name, resize_shape, three_channel=False, ds_images=DS_IMAGES, ds_masks=DS_MASKS):
     base_name, ext = os.path.splitext(image_name)
 
-    if os.path.exists(os.path.join(DS_IMAGES, image_name)):
-        img = cv2.imread(os.path.join(DS_IMAGES, image_name), cv2.IMREAD_GRAYSCALE).astype(np.uint8)
-    else:
-        img = cv2.imread(os.path.join(PAGE_IMAGES, image_name), cv2.IMREAD_GRAYSCALE).astype(np.uint8)
+    if os.path.exists(os.path.join(ds_images, image_name)):
+        img = cv2.imread(os.path.join(ds_images, image_name), cv2.IMREAD_GRAYSCALE).astype(np.uint8)
     
-    if os.path.exists(os.path.join(DS_MASKS, base_name + "_mask" + ext)):
-        mask = cv2.imread(os.path.join(DS_MASKS, base_name + "_mask" + ext), cv2.IMREAD_GRAYSCALE).astype(np.uint8)
+    if os.path.exists(os.path.join(ds_masks, base_name + "_mask" + ext)):
+        mask = cv2.imread(os.path.join(ds_masks, base_name + "_mask" + ext), cv2.IMREAD_GRAYSCALE).astype(np.uint8)
     else:
         mask = np.zeros(resize_shape).astype(np.uint8)
+
+    # print("read ", image_name, ds_images)
 
     img = cv2.resize(img, resize_shape, interpolation=cv2.INTER_AREA)
     mask = cv2.resize(mask, resize_shape, interpolation=cv2.INTER_AREA)
@@ -239,13 +241,14 @@ def image_batch_generator(
             image_names, batch_size, 
             resize_shape, normalize=True, 
             aug_transform=None,
-            three_channel=False
+            three_channel=False,
+            ds_images=DS_IMAGES, ds_masks=DS_MASKS
         ):
 
     while True:
         batch_X, batch_y = [], []
         for i, image_name in enumerate(image_names):
-            img, mask = read_sample(image_name, resize_shape, three_channel)
+            img, mask = read_sample(image_name, resize_shape, three_channel, ds_images=ds_images, ds_masks=ds_masks)
 
             if not three_channel:
                 edges = cv2.bitwise_not(cv2.Canny(img, 5, 10))
@@ -286,9 +289,9 @@ def apply_table_augmentation(transform, image):
     return transformed_table
 
 
-def apply_costum_augmentation(image, mask, ratio=0.4):
+def apply_costum_augmentation(image, mask, ratio=0.2):
     # random stratch
-    if random.random() < 0.5:
+    if random.random() < 0.4:
         new_image = np.ones_like(image) * 255
         new_mask = np.zeros_like(mask)
 
@@ -306,7 +309,7 @@ def apply_costum_augmentation(image, mask, ratio=0.4):
         new_image[random_y:random_y+random_height, random_x:random_x+random_width] = stretched_image
         new_mask[random_y:random_y+random_height, random_x:random_x+random_width] = stretched_mask
         return new_image, new_mask
-        
+
     return image, mask
 
 
@@ -342,9 +345,9 @@ def get_train_augmentation():
         # A.Rotate(limit=45, border_mode=0, p=1, value=(255, 255, 255)),
         A.GaussNoise(var_limit=(10.0, 40.0), p=0.3),
         A.GaussianBlur(blur_limit=(1, 5), sigma_limit=0, p=0.3),
-        A.ShiftScaleRotate(shift_limit=0.0, scale_limit=0.1, rotate_limit=5, border_mode=0, p=0.3),
+        A.ShiftScaleRotate(shift_limit=0.2, scale_limit=0.2, rotate_limit=5, border_mode=cv2.BORDER_CONSTANT, value=255, mask_value=0, p=0.4),
         # A.HueSaturationValue(hue_shift_limit=20, sat_shift_limit=30, val_shift_limit=20, p=1),
-        A.RandomBrightnessContrast(brightness_limit=0.1, contrast_limit=0.1, brightness_by_max=True, p=0.3)
+        A.RandomBrightnessContrast(brightness_limit=0.1, contrast_limit=0.1, brightness_by_max=True, p=0.4)
         # A.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1, p=0.5)
     ]
     return A.Compose(train_transform)
@@ -380,10 +383,13 @@ class SaveValidSamplesCallback(tf.keras.callbacks.Callback):
         )
 
 
-def save_pred_samples(model, sample_names, resize_shape, epoch, set_name, directory, three_channel):
+def save_pred_samples(
+        model, sample_names, resize_shape, 
+        epoch, set_name, directory, three_channel, 
+        ds_images=DS_IMAGES, ds_masks=DS_MASKS):
 
     for i, image_name in enumerate(sample_names):
-        img, mask = read_sample(image_name, resize_shape)
+        img, mask = read_sample(image_name, resize_shape, three_channel, ds_images=ds_images, ds_masks=ds_masks)
 
         if not three_channel:
             edges = cv2.bitwise_not(cv2.Canny(img, 1, 10))

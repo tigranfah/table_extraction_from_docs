@@ -52,7 +52,7 @@ def f1_score(gt, pr, beta=1, eps=1e-7):
     return 2 * rec * prec / (rec + prec + eps)
 
 
-def jaccard_distance(y_true, y_pred, smooth=100):
+def jaccard_distance(y_true, y_pred, smooth=1):
     """ Calculates mean of Jaccard distance as a loss function """
     # print(y_true.shape, y_pred.shape)
     intersection = tf.reduce_sum(y_true * y_pred, axis=(1,2))
@@ -62,7 +62,7 @@ def jaccard_distance(y_true, y_pred, smooth=100):
     return tf.reduce_mean(jd)
 
 
-def dice_coef(y_true, y_pred, smooth=1):        
+def dice_coef(y_true, y_pred, smooth=1):
     y_true_f = K.flatten(y_true)
     y_pred_f = K.flatten(y_pred)
     intersection = K.sum(y_true_f * y_pred_f)
@@ -85,12 +85,15 @@ def dice_plus_cross_entropy(beta=0.5, smooth=1):
     return inner_loss
 
 
-def jaccard_plus_cross_entropy(y_true, y_pred, beta=0.5, smooth=1):
+def jaccard_plus_cross_entropy(beta=0.5, smooth=1):
     
-    cross_entropy = K.mean(K.binary_crossentropy(target=y_true, output=y_pred))
-    jaccard_dist = jaccard_distance(y_true, y_pred, smooth)
+    def inner_loss(y_true, y_pred):
+        cross_entropy = K.mean(K.binary_crossentropy(target=y_true, output=y_pred))
+        jaccard_dist = jaccard_distance(y_true, y_pred, smooth)
 
-    return beta * cross_entropy + (1 - beta) * jaccard_dist
+        return beta * cross_entropy + (1 - beta) * jaccard_dist
+
+    return inner_loss
 
 
 # print(tf.keras.metrics.BinaryIoU()(a, b))

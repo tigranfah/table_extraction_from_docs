@@ -23,11 +23,13 @@ model = att_unet_2d((TR_CONFIG["input_shape"][0], TR_CONFIG["input_shape"][1], 2
         )
 
 checkpoint = tf.train.Checkpoint(step=tf.Variable(1), optimizer=tf.keras.optimizers.Adam(), net=model)
-print(f"loading checkpoint {'training_checkpoints/' + '2022.08.23-12/ckpt-104'}")
-status = checkpoint.restore("training_checkpoints/" + '2022.08.23-12/ckpt-104')
+# print(os.path.exists('training_checkpoints/' + '2022.08.25-00/ckpt-203.index'))
+print(f"loading checkpoint {'training_checkpoints/' + '2022.08.25-00/ckpt-203'}")
+status = checkpoint.restore("training_checkpoints/" + '2022.08.25-00 (203 ckpt)/ckpt-203')
+status.expect_partial()
 
 converter = tf.lite.TFLiteConverter.from_keras_model(model)
 tflite_model = converter.convert()
 
-with open('../models/att_unet_table_detector_v2.tflite', 'wb') as f:
+with open('../models/att_unet_table_detector_v4.tflite', 'wb') as f:
     f.write(tflite_model)
