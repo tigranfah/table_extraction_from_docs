@@ -10,6 +10,7 @@ from openpyxl.styles import Alignment
 import math
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.join("..", "keras_unets"))
 
@@ -54,9 +55,14 @@ table_detector_model = att_unet_2d((TABLE_DETECTION_CONFIG["input_shape"][0], TA
                             batch_norm=True, pool=False, unpool='bilinear', name='attunet'
                         )
 
+# table_detector_model = tf.lite.Interpreter("../models/att_unet_table_detector_v6.tflite")
+# table_detector_model.allocate_tensors()
+# table_detector_model_input_details = table_detector_model.get_input_details()
+# table_detector_model_output_details = table_detector_model.get_output_details()
+
 checkpoint = tf.train.Checkpoint(step=tf.Variable(1), optimizer=tf.keras.optimizers.Adam(), net=table_detector_model)
-# print(f"loading checkpoint {'training_checkpoints/' + '2022.07.30-22/' + 'ckpt-238'}")
-status = checkpoint.restore("training_checkpoints/2022.08.29-07/ckpt-157")
+print(f"loading checkpoint {'training_checkpoints/' + '2022.07.30-22/' + 'ckpt-238'}")
+status = checkpoint.restore("training_checkpoints/2022.08.29-15/ckpt-193")
 status.expect_partial()
 
 # end initialize models
@@ -436,7 +442,7 @@ def get_col_bboxes_count(bboxes):
         if cur[0] > max_x:
             break
         count += 1
-        max_x = min(max_x, cur[2])
+        max_x = max(max_x, cur[2])
 
     return count
 
@@ -458,7 +464,7 @@ def rescale_output(coords, current_shape, target_shape):
     return rescaled_coords
 
 
-def read_pdf_windowed(fitz_doc_page, bbox, embrace=(5, 10)):
+def read_pdf_windowed(fitz_doc_page, bbox, embrace=(2, 7)):
     return fitz_doc_page.get_textbox(
         fitz.Rect(bbox[0] - embrace[0], bbox[1] - embrace[1], bbox[2] + embrace[0], bbox[3] + embrace[1])
     )
@@ -565,7 +571,10 @@ def to_excel_file(pdf_bboxes, fits_doc_page, doc_name, sample_name):
 
             if minimal_dist_column_ind:
                 cell = sheet.cell(row_index, minimal_dist_column_ind)
-                cell.value = read_pdf_windowed(fits_doc_page, box)
+                if cell.value == None:
+                    cell.value = read_pdf_windowed(fits_doc_page, box)
+                else:
+                    cell.value = cell.value + " " + read_pdf_windowed(fits_doc_page, box)
                 cell.alignment = Alignment(horizontal="center")
             # else:
             #     cell = sheet.cell(row_index, min(intersected_column_indices))
@@ -600,7 +609,6 @@ def to_excel_file(pdf_bboxes, fits_doc_page, doc_name, sample_name):
 def detect_text_bboxes(input_image):
 
     # print(tf.expand_dims(input_image, 0).shape)
-    import time
     st = time.time()
 
     text_detector_interpreter.set_tensor(text_detector_input_details[0]['index'], tf.expand_dims(input_image, 0))
@@ -640,20 +648,20 @@ def detect_text_bboxes(input_image):
         
         to_be_removed = []
         x1, y1, x2, y2 = b1[0], b1[1], b1[2], b1[3]
-        for j, b2 in enumerate(valid_boxes):
+        # for j, b2 in enumerate(valid_boxes):
             
-            if do_intersect((x1, y1, x2, y2), b2, margins=(5, 0)):
-                x1 = min(b2[0], x1)
-                y1 = min(b2[1], y1)
-                x2 = max(b2[2], x2)
-                y2 = max(b2[3], y2)
-                # valid_boxes.remove(pred_box)
-                to_be_removed.append(b2)
+        #     if do_intersect((x1, y1, x2, y2), b2, margins=(5, 0)):
+        #         x1 = min(b2[0], x1)
+        #         y1 = min(b2[1], y1)
+        #         x2 = max(b2[2], x2)
+        #         y2 = max(b2[3], y2)
+        #         # valid_boxes.remove(pred_box)
+        #         to_be_removed.append(b2)
 
-        for rem in to_be_removed:
-            valid_boxes.remove(rem)
+        # for rem in to_be_removed:
+        #     valid_boxes.remove(rem)
 
-        # print("fk rect", (x1, y1, x2, y2))
+        # # print("fk rect", (x1, y1, x2, y2))
         valid_boxes.append((x1, y1, x2, y2))
 
     return valid_boxes
@@ -661,14 +669,24 @@ def detect_text_bboxes(input_image):
 
 def detect_table_bboxes(input_image, pdf_name=None, sample_name=None):
 
+    st = time.time()
+
     raw_out = tf.squeeze(table_detector_model(tf.expand_dims(input_image, 0), training=False))
+
+    # table_detector_model.set_tensor(table_detector_model_input_details[0]['index'], tf.expand_dims(input_image, 0))
+    # table_detector_model.invoke()
+
+    # raw_out = tf.squeeze(table_detector_model.get_tensor(table_detector_model_output_details[0]['index']))
+
+    print("Table detection took", time.time() - st, "secs")
 
     # to be deleted
     # print(np.min(input_image), np.max(input_image))
     inp_img = cv2.cvtColor(np.array(input_image[:, :, 0] * 255, dtype=np.uint8), cv2.COLOR_GRAY2RGB)
 
-    process_output = postprocess_table_detector_output(raw_out, 2, 3000, max_seg_dist=40)
-    # process_output = postprocess_table_detector_output(process_output, 2, 1000, max_seg_dist=20)
+    process_output0 = postprocess_table_detector_output(raw_out, 2, 1000, max_seg_dist=50)
+    # print(process_output.shape)
+    process_output = postprocess_table_detector_output(process_output0 / 255, 2, 5000)
 
     contours, hierarchy = cv2.findContours(process_output, mode=cv2.RETR_TREE, method=cv2.CHAIN_APPROX_SIMPLE)
 
@@ -687,6 +705,7 @@ def detect_table_bboxes(input_image, pdf_name=None, sample_name=None):
             cv2.hconcat([
                 inp_img,
                 cv2.cvtColor(np.array(raw_out * 255, dtype=np.uint8), cv2.COLOR_GRAY2RGB),
+                cv2.cvtColor(np.array(process_output0, dtype=np.uint8), cv2.COLOR_GRAY2RGB),
                 cv2.cvtColor(np.array(process_output, dtype=np.uint8), cv2.COLOR_GRAY2RGB)
             ])
         )
