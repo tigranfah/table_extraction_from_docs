@@ -242,11 +242,11 @@ def image_batch_generator(
             resize_shape, normalize=True, 
             aug_transform=None,
             three_channel=False,
-            ds_images=DS_IMAGES, ds_masks=DS_MASKS
+            ds_images=DS_IMAGES, ds_masks=DS_MASKS, return_names=False
         ):
 
     while True:
-        batch_X, batch_y = [], []
+        batch_X, batch_y, batch_names = [], [], []
         for i, image_name in enumerate(image_names):
             img, mask = read_sample(image_name, resize_shape, three_channel, ds_images=ds_images, ds_masks=ds_masks)
 
@@ -265,11 +265,16 @@ def image_batch_generator(
 
             batch_X.append(img)
             batch_y.append(mask)
+            batch_names.append(image_name)
 
             if len(batch_X) == batch_size or i+1 >= len(image_names):
                 return_batch = np.array(batch_X, dtype=np.float32), np.array(batch_y, dtype=np.float32)
-                batch_X, batch_y = [], []
-                yield return_batch
+                return_batch_names = batch_names.copy()
+                batch_X, batch_y, batch_names = [], [], []
+                if return_names:
+                    yield return_batch[0], return_batch[1], return_batch_names
+                else:
+                    yield return_batch
 
 
 def apply_augmentation(transform, image):
@@ -343,11 +348,11 @@ def get_train_augmentation():
         A.HorizontalFlip(p=0.5),
         # A.VerticalFlip(p=0.3),
         # A.Rotate(limit=45, border_mode=0, p=1, value=(255, 255, 255)),
-        A.GaussNoise(var_limit=(10.0, 40.0), p=0.3),
-        A.GaussianBlur(blur_limit=(1, 5), sigma_limit=0, p=0.3),
-        A.ShiftScaleRotate(shift_limit=0.2, scale_limit=0.2, rotate_limit=5, border_mode=cv2.BORDER_CONSTANT, value=255, mask_value=0, p=0.4),
+        A.GaussNoise(var_limit=(20.0, 40.0), p=0.3),
+        A.GaussianBlur(blur_limit=(1, 3), sigma_limit=0, p=0.3),
+        A.ShiftScaleRotate(shift_limit=0.2, scale_limit=0.05, rotate_limit=5, border_mode=cv2.BORDER_CONSTANT, value=255, mask_value=0, p=0.5),
         # A.HueSaturationValue(hue_shift_limit=20, sat_shift_limit=30, val_shift_limit=20, p=1),
-        A.RandomBrightnessContrast(brightness_limit=0.1, contrast_limit=0.1, brightness_by_max=True, p=0.4)
+        A.RandomBrightnessContrast(brightness_limit=0.1, contrast_limit=0.1, brightness_by_max=True, p=0.5)
         # A.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1, p=0.5)
     ]
     return A.Compose(train_transform)

@@ -56,8 +56,8 @@ table_detector_model = att_unet_2d((TABLE_DETECTION_CONFIG["input_shape"][0], TA
 
 checkpoint = tf.train.Checkpoint(step=tf.Variable(1), optimizer=tf.keras.optimizers.Adam(), net=table_detector_model)
 # print(f"loading checkpoint {'training_checkpoints/' + '2022.07.30-22/' + 'ckpt-238'}")
-status = checkpoint.restore("training_checkpoints/2022.08.23-17/ckpt-115")
-status.assert_consumed()
+status = checkpoint.restore("training_checkpoints/2022.08.29-07/ckpt-157")
+status.expect_partial()
 
 # end initialize models
 
@@ -354,10 +354,10 @@ def postprocess_table_detector_output(raw, min_pixel_size, min_area, max_seg_dis
                     x2, y2 = max(0, put_max_x + (max_seg_dist // 2)), max(0, put_max_y + (max_seg_dist // 2))
                     if do_intersect((x1, y1, x2, y2), coords):
                         
-                        put_min_x = min(put_min_x, coords[0])
-                        put_min_y = min(put_min_y, coords[1])
-                        put_max_x = max(put_max_x, coords[2])
-                        put_max_y = max(put_max_y, coords[3])
+                        put_min_x = min(x1, coords[0])
+                        put_min_y = min(y1, coords[1])
+                        put_max_x = max(x2, coords[2])
+                        put_max_y = max(y2, coords[3])
                         to_be_removed.append(coords)
                         # print("inter", coords, (put_min_y, put_max_y, put_min_x, put_max_x))
 
@@ -458,7 +458,7 @@ def rescale_output(coords, current_shape, target_shape):
     return rescaled_coords
 
 
-def read_pdf_windowed(fitz_doc_page, bbox, embrace=(3, 10)):
+def read_pdf_windowed(fitz_doc_page, bbox, embrace=(5, 10)):
     return fitz_doc_page.get_textbox(
         fitz.Rect(bbox[0] - embrace[0], bbox[1] - embrace[1], bbox[2] + embrace[0], bbox[3] + embrace[1])
     )
@@ -667,7 +667,8 @@ def detect_table_bboxes(input_image, pdf_name=None, sample_name=None):
     # print(np.min(input_image), np.max(input_image))
     inp_img = cv2.cvtColor(np.array(input_image[:, :, 0] * 255, dtype=np.uint8), cv2.COLOR_GRAY2RGB)
 
-    process_output = postprocess_table_detector_output(raw_out, 2, 1000)
+    process_output = postprocess_table_detector_output(raw_out, 2, 3000, max_seg_dist=40)
+    # process_output = postprocess_table_detector_output(process_output, 2, 1000, max_seg_dist=20)
 
     contours, hierarchy = cv2.findContours(process_output, mode=cv2.RETR_TREE, method=cv2.CHAIN_APPROX_SIMPLE)
 

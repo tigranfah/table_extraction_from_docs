@@ -23,7 +23,7 @@ TR_CONFIG = {
     "epochs" : 100,
     "batch_size" : 7,
     # "val_batch_size" : 32,
-    "lr" : 10e-5,
+    "lr" : 1e-4,
     "input_shape" : (512, 512),
     "band_size" : 2,
     "three_channel" : False
@@ -45,6 +45,24 @@ def print_progress(name, metrics, step, all_steps):
     print(str_prog, end='\r')
 
 
+class CycleLRSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
+
+    def __init__(self, initial_learning_rate, step_size, change):
+        self.current_learning_rate = initial_learning_rate
+        self.dir = -1
+        self.step_size = step_size
+        self.steps = 0
+        self.change = change
+
+    def __call__(self, step):
+        # print("Call")
+        if self.steps % self.step_size == 0:
+            self.dir *= -1
+        self.current_learning_rate += self.dir * self.change
+        self.steps += 1
+        # print("\n", self.current_learning_rate)
+        return self.current_learning_rate
+
 def train():
 
     # model = TableNet.build(inputShape=(TR_CONFIG["input_shape"][0], TR_CONFIG["input_shape"][1], TR_CONFIG["band_size"]))
@@ -56,20 +74,15 @@ def train():
                 batch_norm=True, pool=False, unpool='bilinear', name='attunet'
             )
     # model = load_unet_model(TR_CONFIG["input_shape"], TR_CONFIG["band_size"], weight_decay=0.1, weight_scale=2)
+
+    # lr_schedule = CycleLRSchedule(1e-7, 10, 1e-7)
     
-    lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
-        initial_learning_rate=1e-2,
-        # decay_steps=int(len(IMAGE_NAMES) * 0.1),
-        decay_steps=614,
-        decay_rate=0.2
-    )
-    
-    optim = tf.keras.optimizers.Adam(learning_rate=TR_CONFIG["lr"], beta_1=0.9, beta_2=0.999)
+    optim = tf.keras.optimizers.Adam(learning_rate=1e-8, beta_1=0.9, beta_2=0.999)
     # optim = tf.keras.optimizers.SGD(learning_rate=TR_CONFIG["lr"], momentum=0.0)
     loss_fn = jaccard_distance
-    # loss_fn = metrics.jaccard_plus_cross_entropy(beta=0.5)
+    # loss_fn = metrics.jaccard_plus_cross_entropy(beta=0.2)
     # loss_fn = metrics.dice_coef_loss
-    # loss_fn = metrics.dice_plus_cross_entropy(beta=0.5)
+    # loss_fn = metrics.dice_plus_cross_entropy(beta=0.3)
     # loss_fn = tf.keras.losses.BinaryCrossentropy(from_logits=False)
 
     train_names = os.listdir(DS_IMAGES) + os.listdir(PAGE_IMAGES)
@@ -110,9 +123,9 @@ def train():
     # print("successfully loaded checkpoint.")
 
     checkpoint = tf.train.Checkpoint(step=tf.Variable(1), optimizer=optim, net=model)
-    print(f"loading checkpoint {'training_checkpoints/' + '2022.08.25-00/ckpt-207'}")
-    status = checkpoint.restore("training_checkpoints/" + '2022.08.25-00 (203 ckpt)/ckpt-207')
-    status.expect_partial()
+    print(f"loading checkpoint {'training_checkpoints/' + '2022.08.29-07/ckpt-192'}")
+    status = checkpoint.restore("training_checkpoints/" + '2022.08.29-07/ckpt-192')
+    # status.expect_partial()
 
     valid_batch_generator = image_batch_generator(
                                 valid_names, 
@@ -256,12 +269,12 @@ def train():
         print("Saved checkpoint for epoch {} to {}".format(epoch, path))
 
         utils.save_pred_samples(
-            model, train_names[:10], TR_CONFIG["input_shape"], epoch,
+            model, train_names[:20], TR_CONFIG["input_shape"], epoch,
             "train", directory=f"./predicted_samples/{DATE_STR}", three_channel=TR_CONFIG["three_channel"]
         )
         
         utils.save_pred_samples(
-            model, valid_names[:30], TR_CONFIG["input_shape"], epoch,
+            model, valid_names[:40], TR_CONFIG["input_shape"], epoch,
             "valid", directory=f"./predicted_samples/{DATE_STR}", three_channel=TR_CONFIG["three_channel"],
             ds_images=TEST_IMAGES, ds_masks=TEST_MASKS
         )
