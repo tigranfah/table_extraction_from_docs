@@ -7,7 +7,7 @@ import fitz
 with tf.device("CPU:0"):
 
     from infer_utils import detect_text_bboxes, detect_table_bboxes, normalize_table_detector_input, normalize_text_detector_input
-    from infer_utils import rescale_output, read_pdf_windowed, draw_table_struct, to_excel_file
+    from infer_utils import rescale_output, rescale_output_cls, read_pdf_windowed, draw_table_struct, to_excel_file
     from infer_utils import TABLE_DETECTION_CONFIG, TEXT_DETECTION_CONFIG
 
     import os
@@ -23,7 +23,7 @@ with tf.device("CPU:0"):
 
         fitz_doc = fitz.open(pdf_name)
 
-        print("Reading and converting pdf pages to images...")
+        # print("Reading and converting pdf pages to images...")
         dpi = 200
         dpi_matrix = fitz.Matrix(dpi / 72, dpi / 72)
         # pillow_page_images = convert_from_bytes(open(pdf_name,'rb').read(), grayscale=True, poppler_path=r"C:\Users\user\Downloads\poppler-0.68.0_x86\poppler-0.68.0\bin")
@@ -42,16 +42,16 @@ with tf.device("CPU:0"):
         if not os.path.exists(os.path.join("../res/preds", bpdf_name)):
             os.mkdir(os.path.join("../res/preds", bpdf_name))
 
-        if not os.path.exists(os.path.join("../res/excel", bpdf_name)):
+        if not os.lpath.exists(os.path.join("../res/excel", bpdf_name)):
             os.mkdir(os.path.join("../res/excel", bpdf_name))
 
         if not os.path.exists(os.path.join("../res/masks", bpdf_name)):
             os.mkdir(os.path.join("../res/masks", bpdf_name))
 
-        read_indices = range(len(pillow_page_images))
+        read_indices = range(1, len(pillow_page_images) + 1)
         # read_indices = [47]
 
-        print("Predicting...")
+        print("Extracting tables...")
         for page_i in read_indices:
             orig_img = pillow_page_images[page_i-1]
             # print(orig_img.min(), orig_img.max())
@@ -66,23 +66,24 @@ with tf.device("CPU:0"):
                 # print(normed_talbe_img.shape)
                 # print(normed_table_img.shape, table_img.shape)
                 
-                text_bboxes = detect_text_bboxes(normed_table_img)
-                rescaled_text_bboxes = rescale_output(text_bboxes, normed_table_img.shape[1:][::-1], table_img.shape)
+                rescaled_text_bboxes = detect_text_bboxes(normed_table_img)
+                rescale_output_cls(rescaled_text_bboxes, normed_table_img.shape[1:][::-1], table_img.shape)
                 # print(fitz_doc[page_i-1].mediabox)
                 draw_table_struct(table_img, rescaled_text_bboxes, bpdf_name, f"page-{page_i}_table-{box_i+1}")
-                # print(rescaled_text_bboxes)
-                for i in range(len(rescaled_text_bboxes)):
-                    rescaled_text_bboxes[i][0] += table_bbox[0]
-                    rescaled_text_bboxes[i][1] += table_bbox[1]
-                    rescaled_text_bboxes[i][2] += table_bbox[0]
-                    rescaled_text_bboxes[i][3] += table_bbox[1]
 
-                rescaled_pdf_text_bboxes = rescale_output(rescaled_text_bboxes, orig_img.shape, (fitz_doc[page_i-1].mediabox[3], fitz_doc[page_i-1].mediabox[2]))
+                for i in range(len(rescaled_text_bboxes)):
+                    # rescaled_text_bboxes[i].min_x += table_bbox[0]
+                    # rescaled_text_bboxes[i].min_y += table_bbox[1]
+                    # rescaled_text_bboxes[i].max_x += table_bbox[0]
+                    # rescaled_text_bboxes[i].max_y += table_bbox[1]
+                    rescaled_text_bboxes[i].shift((table_bbox[0], table_bbox[1], table_bbox[0], table_bbox[1]))
+
+                rescale_output_cls(rescaled_text_bboxes, orig_img.shape, (fitz_doc[page_i-1].mediabox[3], fitz_doc[page_i-1].mediabox[2]))
                 # for b1, b2 in zip(rescaled_text_bboxes, rescaled_pdf_text_bboxes):
                 #     print(b1, b2)
                 # print(rescaled_pdf_text_bboxes, fitz_doc[page_i-1].mediabox, table_img.shape)
 
-                to_excel_file(rescaled_pdf_text_bboxes, fitz_doc[page_i-1], bpdf_name, f"page-{page_i}_table-{box_i+1}")
+                to_excel_file(rescaled_text_bboxes, fitz_doc[page_i-1], bpdf_name, f"page-{page_i}_table-{box_i+1}")
                 print(f"Page {page_i} - saved table {box_i+1}.")
 
             # draw_table_struct(table_img, rescaled_text_bboxes, bpdf_name, i)
