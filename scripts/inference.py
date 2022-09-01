@@ -42,7 +42,7 @@ with tf.device("CPU:0"):
         if not os.path.exists(os.path.join("../res/preds", bpdf_name)):
             os.mkdir(os.path.join("../res/preds", bpdf_name))
 
-        if not os.lpath.exists(os.path.join("../res/excel", bpdf_name)):
+        if not os.path.exists(os.path.join("../res/excel", bpdf_name)):
             os.mkdir(os.path.join("../res/excel", bpdf_name))
 
         if not os.path.exists(os.path.join("../res/masks", bpdf_name)):
